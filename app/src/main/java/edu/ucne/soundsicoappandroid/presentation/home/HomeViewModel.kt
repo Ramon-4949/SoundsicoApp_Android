@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import edu.ucne.soundsicoappandroid.core.presentation.userMessage
 import edu.ucne.soundsicoappandroid.domain.model.*
+import edu.ucne.soundsicoappandroid.domain.repository.AdminRepository
+import edu.ucne.soundsicoappandroid.domain.repository.LoginPreferences
 import edu.ucne.soundsicoappandroid.domain.usecase.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -19,14 +21,18 @@ class HomeViewModel(
     user: AuthUser,
     private val getProfile: GetProfileUseCase,
     private val getContent: GetHomeContentUseCase,
-    private val signOut: SignOutUseCase
+    private val signOut: SignOutUseCase,
+    private val adminRepository: AdminRepository,
+    private val deleteAccount: DeleteAccountUseCase,
+    private val preferences: LoginPreferences
 ) : ViewModel() {
-    private val mutableState = MutableStateFlow(HomeState(user))
+    private val mutableState = MutableStateFlow(HomeState(user, biometricEnabled = preferences.biometricEnabled(user.id)))
     val state = mutableState.asStateFlow()
     private var refreshJob: Job? = null
     private var pageJob: Job? = null
     private var pageGeneration = 0
     private var calendarJob: Job? = null
+    private var performanceJob: Job? = null
 
     init { refresh() }
 
@@ -55,7 +61,9 @@ class HomeViewModel(
             HomeIntent.CancelReview -> if (!state.value.savingAccount) mutableState.update { it.copy(review = null) }
             HomeIntent.DismissActionError -> mutableState.update { it.copy(actionFailure = null) }
             is HomeIntent.SelectTab -> {
-                mutableState.update { it.copy(tab = intent.tab) }
+                mutableState.update {
+                    it.copy(tab = intent.tab, profilePage = if (intent.tab == HomeTab.Profile) it.profilePage else ProfilePage.Overview)
+                }
                 if (intent.tab == HomeTab.Calendar) loadCalendar()
             }
             is HomeIntent.Search -> changeSearch(intent.value.take(100))
@@ -66,6 +74,22 @@ class HomeViewModel(
             is HomeIntent.SelectDate -> mutableState.update { it.copy(selectedDate = intent.value) }
             is HomeIntent.OpenAssignment -> mutableState.update { it.copy(assignment = intent.value) }
             is HomeIntent.OpenBulletin -> mutableState.update { it.copy(bulletin = intent.value) }
+            HomeIntent.OpenDashboard -> if (state.value.audience == HomeAudience.Administrator)
+                mutableState.update { it.copy(tab = HomeTab.Start, profilePage = ProfilePage.Overview) }
+            HomeIntent.OpenPerformance -> if (state.value.audience == HomeAudience.Administrator) {
+                mutableState.update { it.copy(profilePage = ProfilePage.Performance) }
+                loadPerformance()
+            }
+            HomeIntent.ClosePerformance -> mutableState.update { it.copy(profilePage = ProfilePage.Overview) }
+            HomeIntent.RetryPerformance -> loadPerformance()
+            is HomeIntent.SetBiometric -> {
+                preferences.setBiometricEnabled(state.value.user.id, intent.enabled)
+                mutableState.update { it.copy(biometricEnabled = intent.enabled) }
+            }
+            HomeIntent.RequestDeleteAccount -> mutableState.update { it.copy(deleteAccountConfirmation = true) }
+            HomeIntent.CancelDeleteAccount -> if (!state.value.deletingAccount)
+                mutableState.update { it.copy(deleteAccountConfirmation = false) }
+            HomeIntent.ConfirmDeleteAccount -> removeAccount()
             HomeIntent.CloseDetail -> mutableState.update { it.copy(assignment = null, bulletin = null) }
         }
     }
@@ -79,11 +103,13 @@ class HomeViewModel(
         if (refreshJob?.isActive == true || state.value.signingOut || state.value.savingAccount) return
         pageJob?.cancel()
         calendarJob?.cancel()
+        performanceJob?.cancel()
         pageGeneration++
         mutableState.update { it.copy(loading = true, failure = null, listFailure = null,
             listLoading = false, loadingMore = false, today = LocalDate.now(),
             profile = null, content = HomeContent(emptyList(), emptyList()), assignment = null, approvalsOpen = false, review = null,
-            calendarAssignments = null, calendarLoading = false, calendarFailure = null) }
+            calendarAssignments = null, calendarLoading = false, calendarFailure = null,
+            profilePage = ProfilePage.Overview, performance = emptyList(), performanceLoading = false, performanceFailure = null) }
         refreshJob = viewModelScope.launch {
             try {
                 val profile = getProfile(state.value.user.id)
@@ -177,10 +203,28 @@ class HomeViewModel(
         }
     }
 
+    private fun loadPerformance() {
+        if (state.value.audience != HomeAudience.Administrator || performanceJob?.isActive == true) return
+        mutableState.update { it.copy(performanceLoading = true, performanceFailure = null) }
+        performanceJob = viewModelScope.launch {
+            try {
+                val values = adminRepository.getEmployeePerformance(java.time.YearMonth.now().toString())
+                mutableState.update { it.copy(performance = values) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                mutableState.update { it.copy(performanceFailure = error.userMessage()) }
+            } finally {
+                mutableState.update { it.copy(performanceLoading = false) }
+            }
+        }
+    }
+
     private fun logout() {
         if (state.value.signingOut || state.value.savingAccount) return
         refreshJob?.cancel()
         calendarJob?.cancel()
+        performanceJob?.cancel()
         pageJob?.cancel()
         pageGeneration++
         mutableState.update { it.copy(signingOut = true, failure = null) }
@@ -193,6 +237,23 @@ class HomeViewModel(
                 mutableState.update { it.copy(failure = error.userMessage()) }
             } finally {
                 mutableState.update { it.copy(signingOut = false) }
+            }
+        }
+    }
+
+    private fun removeAccount() {
+        if (state.value.deletingAccount || state.value.signingOut) return
+        mutableState.update { it.copy(deletingAccount = true, deleteAccountConfirmation = false, actionFailure = null) }
+        viewModelScope.launch {
+            try {
+                deleteAccount()
+                preferences.setBiometricEnabled(state.value.user.id, false)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                mutableState.update { it.copy(actionFailure = error.userMessage()) }
+            } finally {
+                mutableState.update { it.copy(deletingAccount = false) }
             }
         }
     }

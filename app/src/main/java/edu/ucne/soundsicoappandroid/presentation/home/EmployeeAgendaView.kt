@@ -6,8 +6,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 @Composable
 fun EmployeeAgendaView(state: HomeState, onIntent: (HomeIntent) -> Unit) {
@@ -15,12 +13,6 @@ fun EmployeeAgendaView(state: HomeState, onIntent: (HomeIntent) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { HomeHeader(state, onIntent) }
         item { AssignmentSectionHeader(state, onIntent) }
-        item {
-            if (state.todayOnly) Text(
-                "Hoy · ${state.today.format(DateTimeFormatter.ofPattern("d MMMM", Locale.forLanguageTag("es")))}",
-                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant
-            ) else TextButton({ onIntent(HomeIntent.ShowToday) }) { Text("Mostrar agenda de hoy") }
-        }
         assignmentItems(state, onIntent)
     }
 }

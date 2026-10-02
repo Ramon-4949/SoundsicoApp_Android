@@ -18,23 +18,18 @@ import edu.ucne.soundsicoappandroid.domain.model.DashboardMetrics
 import java.util.Locale
 
 @Composable
-fun AdminDashboardView(state: HomeState, onIntent: (HomeIntent) -> Unit) {
+fun AdminDashboardView(state: HomeState, onIntent: (HomeIntent) -> Unit, onCreateAssignment: () -> Unit) {
     LazyColumn(Modifier.widthIn(max = 680.dp).fillMaxSize(), contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { HomeHeader(state, onIntent) }
         state.content.dashboard?.let { dashboard ->
             item { DashboardMetricCards(dashboard.metrics) }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Button({ onIntent(HomeIntent.OpenApprovals) }, Modifier.weight(1f).heightIn(min = 48.dp),
-                        shape = RoundedCornerShape(10.dp)) {
-                        Icon(Icons.Outlined.HowToReg, null, Modifier.size(19.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Revisar aprobaciones (${dashboard.pendingAccounts.size})")
-                    }
-                    OutlinedIconButton({ onIntent(HomeIntent.SelectTab(HomeTab.Calendar)) }, Modifier.size(48.dp)) {
-                        Icon(Icons.Outlined.CalendarMonth, "Consultar agenda", Modifier.size(22.dp))
-                    }
+                Button(onCreateAssignment, Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    shape = RoundedCornerShape(10.dp)) {
+                    Icon(Icons.Outlined.AddCircle, null, Modifier.size(19.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Crear Nueva Asignación")
                 }
             }
         }

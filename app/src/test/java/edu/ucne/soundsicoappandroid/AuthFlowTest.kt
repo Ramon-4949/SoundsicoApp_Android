@@ -65,7 +65,7 @@ class AuthFlowTest {
     @Test fun pendingAndRejectedAccountsCannotLoadHomeData() = runTest(dispatcher) {
         val home = FakeHome()
         val model = HomeViewModel(AuthUser("u", "ana@empresa.com", "Ana"),
-            GetProfileUseCase(auth), GetHomeContentUseCase(home), SignOutUseCase(auth))
+            GetProfileUseCase(auth), GetHomeContentUseCase(home), SignOutUseCase(auth), FakeAdmin())
         advanceUntilIdle()
         assertEquals(AccountAccess.Pending, model.state.value.profile?.access)
         assertEquals(0, home.calls)
@@ -127,5 +127,20 @@ class AuthFlowTest {
             calls++
             return HomeContent(listOf(Assignment("a", "Evento", "campo", "alta", "pendiente", null, null, null)), emptyList())
         }
+    }
+
+    private class FakeAdmin : AdminRepository {
+        override suspend fun getDashboardMetrics() = DashboardMetrics(0, 0, 0, 0.0, emptyList())
+        override suspend fun getAssignments(offset: Int, limit: Int, filter: AdminAssignmentFilter, search: String) =
+            AdminAssignmentPage(emptyList(), false, null)
+        override suspend fun getEmployees() = emptyList<Employee>()
+        override suspend fun createAssignment(draft: AssignmentDraft) = error("No disponible")
+        override suspend fun updateAssignment(id: String, draft: AssignmentDraft) = error("No disponible")
+        override suspend fun deleteAssignment(id: String) = Unit
+        override suspend fun getAccounts() = emptyList<ManagedAccount>()
+        override suspend fun reviewAccount(userId: String, state: AccountAccessState) = Unit
+        override suspend fun getEmployeePerformance(month: String, employeeId: String?) = emptyList<EmployeePerformance>()
+        override suspend fun getEmployeeAvailability(window: AssignmentBookingWindow, excludingAssignmentId: String?) =
+            emptyList<EmployeeAvailability>()
     }
 }

@@ -18,12 +18,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import edu.ucne.soundsicoappandroid.domain.model.*
-import java.time.OffsetDateTime
-import java.time.format.DateTimeFormatter
-import java.util.Locale
+import edu.ucne.soundsicoappandroid.presentation.profile.AdminPerformanceScreen
+import edu.ucne.soundsicoappandroid.presentation.profile.ProfileScreen
 
 @Composable
-fun HomeScreen(state: HomeState, onIntent: (HomeIntent) -> Unit) {
+fun HomeScreen(state: HomeState, onIntent: (HomeIntent) -> Unit, onCreateAssignment: () -> Unit = {}) {
     val approved = state.profile?.access == AccountAccess.Approved
     Scaffold(
         containerColor = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.background else Color(0xFFF9F9F9),
@@ -52,7 +51,7 @@ fun HomeScreen(state: HomeState, onIntent: (HomeIntent) -> Unit) {
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
             if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-            if (approved && state.tab != HomeTab.Start) {
+            if (approved && state.tab != HomeTab.Start && state.tab != HomeTab.Profile) {
                 Row(Modifier.widthIn(max = 680.dp).fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(state.tab.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -69,38 +68,33 @@ fun HomeScreen(state: HomeState, onIntent: (HomeIntent) -> Unit) {
             if (!approved) {
                 AccessContent(state, onIntent)
             } else when (state.tab) {
-                HomeTab.Start -> if (state.audience == HomeAudience.Administrator) AdminDashboardView(state, onIntent) else EmployeeAgendaView(state, onIntent)
+                HomeTab.Start -> if (state.audience == HomeAudience.Administrator) AdminDashboardView(state, onIntent, onCreateAssignment) else EmployeeAgendaView(state, onIntent)
                 HomeTab.Messages -> BulletinsContent(state, onIntent)
                 HomeTab.Calendar -> CalendarContent(state, onIntent)
-                HomeTab.Profile -> ProfileContent(state, onIntent)
+                HomeTab.Profile -> state.profile?.let { profile ->
+                    if (state.profilePage == ProfilePage.Performance && profile.isAdministrator) {
+                        AdminPerformanceScreen(
+                            state.performance,
+                            state.performanceLoading,
+                            state.performanceFailure,
+                            onBack = { onIntent(HomeIntent.ClosePerformance) },
+                            onRetry = { onIntent(HomeIntent.RetryPerformance) }
+                        )
+                    } else {
+                        ProfileScreen(
+                            profile,
+                            state.user.email,
+                            state.signingOut,
+                            onOpenDashboard = { onIntent(HomeIntent.OpenDashboard) },
+                            onOpenPerformance = { onIntent(HomeIntent.OpenPerformance) },
+                            onSignOut = { onIntent(HomeIntent.SignOut) }
+                        )
+                    }
+                }
             }
         }
     }
     PendingApprovalsDialog(state, onIntent)
-    state.assignment?.let { assignment ->
-        AlertDialog(
-            onDismissRequest = { onIntent(HomeIntent.CloseDetail) },
-            title = { Text(assignment.title) },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(if (assignment.type == "campo") "Operaciones de campo" else "Tarea administrativa")
-                    assignment.location?.takeIf(String::isNotBlank)?.let { Text(it) }
-                    assignment.deadline?.let { Text("Fecha límite: ${dateLabel(it)}") }
-                    assignment.instructions?.takeIf(String::isNotBlank)?.let { Text(it) }
-                    Text("Estado: ${statusLabel(assignment.status)}")
-                }
-            },
-            confirmButton = { TextButton({ onIntent(HomeIntent.CloseDetail) }) { Text("Cerrar") } }
-        )
-    }
-    state.bulletin?.let { bulletin ->
-        AlertDialog(
-            onDismissRequest = { onIntent(HomeIntent.CloseDetail) },
-            title = { Text(bulletin.subject) },
-            text = { Text(bulletin.message, Modifier.verticalScroll(rememberScrollState())) },
-            confirmButton = { TextButton({ onIntent(HomeIntent.CloseDetail) }) { Text("Cerrar") } }
-        )
-    }
 }
 
 @Composable
@@ -169,31 +163,9 @@ private fun CalendarContent(state: HomeState, onIntent: (HomeIntent) -> Unit) {
 }
 
 @Composable
-private fun ProfileContent(state: HomeState, onIntent: (HomeIntent) -> Unit) {
-    Column(Modifier.widthIn(max = 680.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Icon(Icons.Outlined.AccountCircle, null, Modifier.size(80.dp))
-        Text(state.profile?.name.orEmpty(), style = MaterialTheme.typography.headlineSmall)
-        listOf("Correo corporativo" to state.user.email, "Número de teléfono" to state.profile?.phone.orEmpty(),
-            "Cargo" to state.profile?.position.orEmpty()).forEach { (label, value) ->
-            ListItem(headlineContent = { Text(label) }, supportingContent = { Text(value) })
-        }
-        OutlinedButton({ onIntent(HomeIntent.SignOut) }, enabled = !state.signingOut, modifier = Modifier.fillMaxWidth()) {
-            Text(if (state.signingOut) "Cerrando sesión…" else "Cerrar sesión")
-        }
-    }
-}
-
-@Composable
 private fun EmptyContent(title: String, description: String) {
     Column(Modifier.fillMaxWidth().padding(vertical = 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.titleMedium)
         Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
-
-
-private fun dateLabel(value: String) = runCatching {
-    OffsetDateTime.parse(value).atZoneSameInstant(java.time.ZoneId.systemDefault())
-        .format(DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm", Locale.forLanguageTag("es")))
-}.getOrDefault(value)

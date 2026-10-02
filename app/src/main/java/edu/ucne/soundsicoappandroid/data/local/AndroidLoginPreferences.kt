@@ -11,4 +11,8 @@ class AndroidLoginPreferences(context: Context) : LoginPreferences {
             if (email == null) remove("email") else putString("email", email)
         }.apply()
     }
+    override fun biometricEnabled(userId: String) = preferences.getBoolean("biometric.$userId", false)
+    override fun setBiometricEnabled(userId: String, enabled: Boolean) {
+        preferences.edit().putBoolean("biometric.$userId", enabled).apply()
+    }
 }

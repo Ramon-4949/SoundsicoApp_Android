@@ -11,6 +11,7 @@ enum class AssignmentFilter(val title: String, val serverValue: String) {
     Overdue("Vencidas", "vencidas"), Complete("Completadas", "completadas")
 }
 enum class HomeAudience { Resolving, Restricted, Administrator, Employee }
+enum class ProfilePage { Overview, Performance }
 data class AccountReview(val account: PendingAccount, val approved: Boolean)
 
 data class HomeState(
@@ -26,7 +27,7 @@ data class HomeState(
     val filter: AssignmentFilter = AssignmentFilter.All,
     val selectedDate: LocalDate = LocalDate.now(),
     val today: LocalDate = LocalDate.now(),
-    val todayOnly: Boolean = true,
+    val todayOnly: Boolean = false,
     val assignment: Assignment? = null,
     val bulletin: Bulletin? = null,
     val loadingMore: Boolean = false,
@@ -38,7 +39,14 @@ data class HomeState(
     val actionFailure: String? = null,
     val calendarAssignments: List<Assignment>? = null,
     val calendarLoading: Boolean = false,
-    val calendarFailure: String? = null
+    val calendarFailure: String? = null,
+    val profilePage: ProfilePage = ProfilePage.Overview,
+    val performance: List<EmployeePerformance> = emptyList(),
+    val performanceLoading: Boolean = false,
+    val performanceFailure: String? = null,
+    val biometricEnabled: Boolean = false,
+    val deleteAccountConfirmation: Boolean = false,
+    val deletingAccount: Boolean = false
 ) {
     val audience: HomeAudience get() = when {
         profile == null -> HomeAudience.Resolving
@@ -86,5 +94,13 @@ sealed interface HomeIntent {
     data class SelectDate(val value: LocalDate) : HomeIntent
     data class OpenAssignment(val value: Assignment) : HomeIntent
     data class OpenBulletin(val value: Bulletin) : HomeIntent
+    data object OpenDashboard : HomeIntent
+    data object OpenPerformance : HomeIntent
+    data object ClosePerformance : HomeIntent
+    data object RetryPerformance : HomeIntent
+    data class SetBiometric(val enabled: Boolean) : HomeIntent
+    data object RequestDeleteAccount : HomeIntent
+    data object CancelDeleteAccount : HomeIntent
+    data object ConfirmDeleteAccount : HomeIntent
     data object CloseDetail : HomeIntent
 }

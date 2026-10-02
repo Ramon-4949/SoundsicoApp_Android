@@ -17,12 +17,13 @@ class HomeViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private val auth = TestAuth()
     private val repository = TestHome()
+    private val admin = TestAdmin()
     private val user = AuthUser("user", "ana@empresa.com", "Ana")
 
     @Before fun setup() { Dispatchers.setMain(dispatcher) }
     @After fun cleanup() { Dispatchers.resetMain() }
 
-    private fun model() = HomeViewModel(user, GetProfileUseCase(auth), GetHomeContentUseCase(repository), SignOutUseCase(auth))
+    private fun model() = HomeViewModel(user, GetProfileUseCase(auth), GetHomeContentUseCase(repository), SignOutUseCase(auth), admin)
 
     @Test fun loadsAdminOnlyAfterApprovedServerProfile() = runTest(dispatcher) {
         auth.role = "admin"
@@ -110,7 +111,7 @@ class HomeViewModelTest {
         assertEquals(0, model.state.value.content.dashboard?.pendingAccounts?.size)
     }
 
-    @Test fun employeeAgendaUsesLocalDateAndShowAllRemovesDayFilter() = runTest(dispatcher) {
+    @Test fun employeeHomeShowsAllAssignmentsAndCanFilterToday() = runTest(dispatcher) {
         val today = LocalDate.now()
         val date = today.atTime(10, 0).atZone(ZoneId.systemDefault()).toOffsetDateTime().toString()
         val tomorrow = today.plusDays(1).atTime(10, 0).atZone(ZoneId.systemDefault()).toOffsetDateTime().toString()
@@ -118,9 +119,27 @@ class HomeViewModelTest {
             repository.assignment.copy(id = "tomorrow", deadline = tomorrow))
         val model = model()
         advanceUntilIdle()
-        assertEquals(listOf("today"), model.state.value.visibleAssignments.map { it.id })
-        model.onIntent(HomeIntent.ShowAll)
         assertEquals(2, model.state.value.visibleAssignments.size)
+        model.onIntent(HomeIntent.ShowToday)
+        assertEquals(listOf("today"), model.state.value.visibleAssignments.map { it.id })
+    }
+
+    @Test fun performanceIsRestrictedToAdministrators() = runTest(dispatcher) {
+        val employeeModel = model()
+        advanceUntilIdle()
+        employeeModel.onIntent(HomeIntent.OpenPerformance)
+        advanceUntilIdle()
+        assertEquals(ProfilePage.Overview, employeeModel.state.value.profilePage)
+        assertEquals(0, admin.performanceLoads)
+
+        auth.role = "admin"
+        val adminModel = model()
+        advanceUntilIdle()
+        adminModel.onIntent(HomeIntent.OpenPerformance)
+        advanceUntilIdle()
+        assertEquals(ProfilePage.Performance, adminModel.state.value.profilePage)
+        assertEquals(1, admin.performanceLoads)
+        assertEquals("Ana Pérez", adminModel.state.value.performance.single().name)
     }
 
     private class TestAuth : AuthRepository {
@@ -160,5 +179,24 @@ class HomeViewModelTest {
             delay(10)
             if (failReview) error("No se pudo guardar")
         }
+    }
+
+    private class TestAdmin : AdminRepository {
+        var performanceLoads = 0
+        override suspend fun getDashboardMetrics() = DashboardMetrics(0, 0, 0, 0.0, emptyList())
+        override suspend fun getAssignments(offset: Int, limit: Int, filter: AdminAssignmentFilter, search: String) =
+            AdminAssignmentPage(emptyList(), false, null)
+        override suspend fun getEmployees() = emptyList<Employee>()
+        override suspend fun createAssignment(draft: AssignmentDraft) = error("No disponible")
+        override suspend fun updateAssignment(id: String, draft: AssignmentDraft) = error("No disponible")
+        override suspend fun deleteAssignment(id: String) = Unit
+        override suspend fun getAccounts() = emptyList<ManagedAccount>()
+        override suspend fun reviewAccount(userId: String, state: AccountAccessState) = Unit
+        override suspend fun getEmployeePerformance(month: String, employeeId: String?): List<EmployeePerformance> {
+            performanceLoads++
+            return listOf(EmployeePerformance("employee", "Ana Pérez", "Técnico", 1, 3, 0, 0, 0.0, emptyList(), 4, 4, 0, 0))
+        }
+        override suspend fun getEmployeeAvailability(window: AssignmentBookingWindow, excludingAssignmentId: String?) =
+            emptyList<EmployeeAvailability>()
     }
 }

@@ -17,8 +17,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import edu.ucne.soundsicoappandroid.core.designsystem.*
+import edu.ucne.soundsicoappandroid.domain.model.Assignment
 import edu.ucne.soundsicoappandroid.domain.model.SessionState
 import edu.ucne.soundsicoappandroid.presentation.home.*
+import edu.ucne.soundsicoappandroid.presentation.admincreation.*
+import edu.ucne.soundsicoappandroid.presentation.assignmentdetail.*
+import edu.ucne.soundsicoappandroid.presentation.bulletindetail.*
 import edu.ucne.soundsicoappandroid.presentation.login.*
 import edu.ucne.soundsicoappandroid.presentation.signup.*
 
@@ -65,10 +69,102 @@ private fun SoundiscoApp(container: AppContainer) {
         }
         is SessionState.SignedIn -> SessionScope(current.user.id, sessionModel) {
             val model: HomeViewModel = viewModel(factory = factory {
-                HomeViewModel(current.user, container.getProfile, container.getHomeContent, container.signOut)
+                HomeViewModel(
+                    current.user,
+                    container.getProfile,
+                    container.getHomeContent,
+                    container.signOut,
+                    container.adminRepository,
+                    container.deleteAccount,
+                    container.loginPreferences
+                )
             })
             val state by model.state.collectAsStateWithLifecycle()
-            HomeScreen(state, model::onIntent)
+            var creating by rememberSaveable { mutableStateOf(false) }
+            var creationSession by rememberSaveable { mutableIntStateOf(0) }
+            var editingAssignment by remember { mutableStateOf<Assignment?>(null) }
+            val administrator = state.audience == HomeAudience.Administrator
+            if (creating || editingAssignment != null) {
+                val assignment = editingAssignment
+                val creationModel: AdminCreationViewModel = viewModel(
+                    key = "admin-creation-$creationSession",
+                    factory = factory { AdminCreationViewModel(container.adminRepository, container.bulletinsRepository, assignment) }
+                )
+                val creationState by creationModel.state.collectAsStateWithLifecycle()
+                AdminCreationScreen(
+                    creationState,
+                    creationModel::onIntent,
+                    onClose = {
+                        creating = false
+                        editingAssignment = null
+                    },
+                    onCompleted = {
+                        creating = false
+                        editingAssignment = null
+                        model.onIntent(HomeIntent.CloseDetail)
+                        model.onIntent(HomeIntent.Refresh)
+                    }
+                )
+            } else if (state.assignment != null) {
+                val assignment = requireNotNull(state.assignment)
+                val detailModel: AssignmentDetailViewModel = viewModel(
+                    key = "assignment-detail-${assignment.id}",
+                    factory = factory {
+                        AssignmentDetailViewModel(
+                            assignment.id,
+                            current.user.id,
+                            administrator,
+                            container.milestonesRepository,
+                            container.adminRepository
+                        )
+                    }
+                )
+                val detailState by detailModel.state.collectAsStateWithLifecycle()
+                AssignmentDetailScreen(
+                    detailState,
+                    current.user.id,
+                    administrator,
+                    detailModel::onIntent,
+                    onBack = {
+                        model.onIntent(HomeIntent.CloseDetail)
+                        model.onIntent(HomeIntent.Refresh)
+                    },
+                    onEdit = {
+                        creationSession++
+                        editingAssignment = it
+                    },
+                    onDeleted = {
+                        model.onIntent(HomeIntent.CloseDetail)
+                        model.onIntent(HomeIntent.Refresh)
+                    }
+                )
+            } else if (state.bulletin != null) {
+                val bulletin = requireNotNull(state.bulletin)
+                val detailModel: BulletinDetailViewModel = viewModel(
+                    key = "bulletin-detail-${bulletin.id}",
+                    factory = factory { BulletinDetailViewModel(bulletin, administrator, container.bulletinsRepository) }
+                )
+                val detailState by detailModel.state.collectAsStateWithLifecycle()
+                BulletinDetailScreen(
+                    detailState,
+                    administrator,
+                    detailModel::onIntent,
+                    onBack = {
+                        model.onIntent(HomeIntent.CloseDetail)
+                        model.onIntent(HomeIntent.Refresh)
+                    },
+                    onDeleted = {
+                        model.onIntent(HomeIntent.CloseDetail)
+                        model.onIntent(HomeIntent.Refresh)
+                    }
+                )
+            } else {
+                HomeScreen(state, model::onIntent) {
+                    creationSession++
+                    editingAssignment = null
+                    creating = true
+                }
+            }
         }
     }
 }

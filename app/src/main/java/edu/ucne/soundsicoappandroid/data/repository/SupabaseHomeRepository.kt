@@ -28,7 +28,7 @@ class SupabaseHomeRepository(private val client: SupabaseClient) : HomeRepositor
     override suspend fun loadEmployeeAssignments(userId: String): List<Assignment> {
         val result = mutableListOf<AssignmentDto>()
         var offset = 0L
-        val columns = "asignaciones(*,hitos_itinerario(orden,descripcion,fecha_programada,completado,hitos_colaboradores(usuario_id,confirmado)),asignacion_supervisores(usuario_id))"
+        val columns = "asignaciones(*,hitos_itinerario(*,hitos_colaboradores(*,perfiles(id,nombre_completo,rol,cargo))),asignacion_supervisores(usuario_id),asignacion_equipo(perfiles(id,nombre_completo,rol,cargo)))"
         do {
             val page = client.from("asignacion_equipo").select(Columns.raw(columns)) {
                 filter { eq("perfil_id", userId) }

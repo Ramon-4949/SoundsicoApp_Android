@@ -59,6 +59,11 @@ class SupabaseAuthRepository(private val client: SupabaseClient) : AuthRepositor
 
     override suspend fun signOut() = client.auth.signOut()
 
+    override suspend fun deleteAccount() {
+        client.postgrest.rpc("delete_my_account")
+        client.auth.signOut()
+    }
+
     override suspend fun profile(userId: String): EmployeeProfile {
         val access = client.postgrest.rpc("my_account_access").decodeAs<AccessDto>().toDomain()
         return client.from("perfiles").select { filter { eq("id", userId) } }

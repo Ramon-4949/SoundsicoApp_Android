@@ -11,6 +11,7 @@ supabase = "3.2.6"
 ktor = "3.3.1"
 coroutines = "1.10.2"
 composeBom = "2026.02.01"
+biometric = "1.1.0"
 
 [libraries]
 supabase-bom = { module = "io.github.jan-tennert.supabase:bom", version.ref = "supabase" }
@@ -37,6 +38,7 @@ androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "u
 androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-biometric = { module = "androidx.biometric:biometric", version.ref = "biometric" }
 
 [plugins]
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

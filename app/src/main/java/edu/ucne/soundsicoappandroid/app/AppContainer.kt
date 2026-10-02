@@ -23,4 +23,5 @@ class AppContainer(context: Context) {
     val getProfile = GetProfileUseCase(authRepository)
     val getHomeContent = GetHomeContentUseCase(homeRepository)
     val signOut = SignOutUseCase(authRepository)
+    val deleteAccount = DeleteAccountUseCase(authRepository)
 }
