@@ -1,53 +1,89 @@
 package edu.ucne.soundsicoappandroid.data.repository
 
 import edu.ucne.soundsicoappandroid.data.remote.*
-import edu.ucne.soundsicoappandroid.domain.model.HomeContent
+import edu.ucne.soundsicoappandroid.domain.model.*
 import edu.ucne.soundsicoappandroid.domain.repository.HomeRepository
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 class SupabaseHomeRepository(private val client: SupabaseClient) : HomeRepository {
     override suspend fun load(userId: String, administrator: Boolean): HomeContent = coroutineScope {
-        val assignments = async {
-            val result = mutableListOf<AssignmentDto>()
-            var offset = 0L
-            var pageSize: Int
-            val columns = "*,hitos_itinerario(orden,fecha_programada,hitos_colaboradores(usuario_id,confirmado)),asignacion_supervisores(usuario_id)"
-            do {
-                val page = if (administrator) {
-                    client.from("asignaciones").select(Columns.raw(columns)) {
-                        order("id", Order.ASCENDING)
-                        range(offset, offset + 199)
-                    }.decodeList<AssignmentDto>().also { pageSize = it.size }
-                } else {
-                    client.from("asignacion_equipo").select(Columns.raw("asignaciones($columns)")) {
-                        filter { eq("perfil_id", userId) }
-                        order("asignacion_id", Order.ASCENDING)
-                        range(offset, offset + 199)
-                    }.decodeList<AssignmentLinkDto>().also { pageSize = it.size }.mapNotNull { it.asignaciones }
-                }
-                result.addAll(page)
-                offset += 200
-            } while (pageSize == 200)
-            result.distinctBy { it.id }.map { it.toDomain(userId, administrator) }.sortedBy { it.deadline }
+        val bulletins = async { loadBulletins() }
+        if (administrator) {
+            val dashboard = async { loadDashboard() }
+            val page = loadAdminAssignments(0, "todas", "")
+            HomeContent(page.items, bulletins.await(), dashboard.await(), page.nextOffset)
+        } else {
+            HomeContent(loadEmployeeAssignments(userId), bulletins.await())
         }
-        val bulletins = async {
-            val result = mutableListOf<BulletinDto>()
-            var offset = 0L
+    }
+
+    override suspend fun loadEmployeeAssignments(userId: String): List<Assignment> {
+        val result = mutableListOf<AssignmentDto>()
+        var offset = 0L
+        val columns = "asignaciones(*,hitos_itinerario(orden,descripcion,fecha_programada,completado,hitos_colaboradores(usuario_id,confirmado)),asignacion_supervisores(usuario_id))"
+        do {
+            val page = client.from("asignacion_equipo").select(Columns.raw(columns)) {
+                filter { eq("perfil_id", userId) }
+                order("asignacion_id", Order.ASCENDING)
+                range(offset, offset + 199)
+            }.decodeList<AssignmentLinkDto>()
+            result.addAll(page.mapNotNull { it.asignaciones })
+            offset += 200
+        } while (page.size == 200)
+        return result.distinctBy { it.id }.map { it.toDomain(userId, false) }
+            .sortedWith(compareBy<Assignment> { it.status == "completada" }.thenBy { it.deadline })
+    }
+
+    override suspend fun loadDashboard(): AdminDashboard = coroutineScope {
+        val metrics = async { client.postgrest.rpc("admin_dashboard_summary").decodeAs<DashboardMetricsDto>().toDomain() }
+        val accounts = async {
+            val pending = mutableListOf<PendingAccount>()
+            var offset = 0
             do {
-                val page = client.from("comunicados").select {
-                    order("id", Order.DESCENDING)
-                    range(offset, offset + 199)
-                }.decodeList<BulletinDto>()
-                result.addAll(page)
-                offset += 200
+                val page = client.postgrest.rpc("admin_list_accounts", buildJsonObject { put("p_offset", offset) })
+                    .decodeList<ManagedAccountDto>()
+                pending.addAll(page.filter { it.estado == "pendiente" }.map { it.toDomain() })
+                offset += page.size
             } while (page.size == 200)
-            result.map { it.toDomain() }
+            pending.distinctBy { it.id }
         }
-        HomeContent(assignments.await(), bulletins.await())
+        AdminDashboard(metrics.await(), accounts.await())
+    }
+
+    override suspend fun loadAdminAssignments(offset: Int, filter: String, search: String): AssignmentPage =
+        client.postgrest.rpc("admin_assignments_page", buildJsonObject {
+            put("p_offset", offset)
+            put("p_limit", 50)
+            put("p_estado", filter)
+            put("p_busqueda", search)
+        }).decodeAs<AssignmentPageDto>().toDomain()
+
+    override suspend fun reviewAccount(userId: String, approved: Boolean) {
+        client.postgrest.rpc("admin_review_account", buildJsonObject {
+            put("p_user_id", userId)
+            put("p_estado", if (approved) "aprobada" else "rechazada")
+        })
+    }
+
+    private suspend fun loadBulletins(): List<Bulletin> {
+        val result = mutableListOf<BulletinDto>()
+        var offset = 0L
+        do {
+            val page = client.from("comunicados").select {
+                order("id", Order.DESCENDING)
+                range(offset, offset + 199)
+            }.decodeList<BulletinDto>()
+            result.addAll(page)
+            offset += 200
+        } while (page.size == 200)
+        return result.map { it.toDomain() }
     }
 }

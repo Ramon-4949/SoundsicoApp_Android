@@ -2,9 +2,16 @@ package edu.ucne.soundsicoappandroid.presentation.home
 
 import edu.ucne.soundsicoappandroid.domain.model.*
 import java.time.LocalDate
+import java.time.OffsetDateTime
+import java.time.ZoneId
 
 enum class HomeTab(val title: String) { Start("Inicio"), Messages("Mensajes"), Calendar("Calendario"), Profile("Perfil") }
-enum class AssignmentFilter(val title: String) { All("Todas"), Pending("Pendientes"), Complete("Completadas"), Overdue("Vencidas") }
+enum class AssignmentFilter(val title: String, val serverValue: String) {
+    All("Todas", "todas"), Pending("Pendientes", "pendientes"),
+    Overdue("Vencidas", "vencidas"), Complete("Completadas", "completadas")
+}
+enum class HomeAudience { Resolving, Restricted, Administrator, Employee }
+data class AccountReview(val account: PendingAccount, val approved: Boolean)
 
 data class HomeState(
     val user: AuthUser,
@@ -15,15 +22,64 @@ data class HomeState(
     val failure: String? = null,
     val content: HomeContent = HomeContent(emptyList(), emptyList()),
     val search: String = "",
+    val searching: Boolean = false,
     val filter: AssignmentFilter = AssignmentFilter.All,
     val selectedDate: LocalDate = LocalDate.now(),
+    val today: LocalDate = LocalDate.now(),
+    val todayOnly: Boolean = true,
     val assignment: Assignment? = null,
-    val bulletin: Bulletin? = null
-)
+    val bulletin: Bulletin? = null,
+    val loadingMore: Boolean = false,
+    val listLoading: Boolean = false,
+    val listFailure: String? = null,
+    val approvalsOpen: Boolean = false,
+    val review: AccountReview? = null,
+    val savingAccount: Boolean = false,
+    val actionFailure: String? = null,
+    val calendarAssignments: List<Assignment>? = null,
+    val calendarLoading: Boolean = false,
+    val calendarFailure: String? = null
+) {
+    val audience: HomeAudience get() = when {
+        profile == null -> HomeAudience.Resolving
+        profile.access != AccountAccess.Approved -> HomeAudience.Restricted
+        profile.isAdministrator -> HomeAudience.Administrator
+        else -> HomeAudience.Employee
+    }
+
+    val visibleAssignments: List<Assignment> get() {
+        if (audience == HomeAudience.Administrator) return content.assignments
+        return content.assignments.filter { assignment ->
+            (!todayOnly || assignment.occursOn(today)) &&
+                (assignment.title + " " + assignment.location.orEmpty()).contains(search.trim(), true) &&
+                when (filter) {
+                    AssignmentFilter.All -> true
+                    AssignmentFilter.Pending -> assignment.status in listOf("pendiente", "en_curso")
+                    AssignmentFilter.Complete -> assignment.status == "completada"
+                    AssignmentFilter.Overdue -> assignment.status == "vencida"
+                }
+        }
+    }
+}
+
+fun Assignment.occursOn(date: LocalDate): Boolean = (scheduledDates + listOfNotNull(deadline)).any {
+    runCatching { OffsetDateTime.parse(it).atZoneSameInstant(ZoneId.systemDefault()).toLocalDate() == date }.getOrDefault(false)
+}
 
 sealed interface HomeIntent {
     data object Refresh : HomeIntent
     data object SignOut : HomeIntent
+    data object ToggleSearch : HomeIntent
+    data object ShowAll : HomeIntent
+    data object ShowToday : HomeIntent
+    data object LoadMore : HomeIntent
+    data object RetryAssignments : HomeIntent
+    data object OpenApprovals : HomeIntent
+    data object CloseApprovals : HomeIntent
+    data class RequestReview(val account: PendingAccount, val approved: Boolean) : HomeIntent
+    data object ConfirmReview : HomeIntent
+    data object CancelReview : HomeIntent
+    data object DismissActionError : HomeIntent
     data class SelectTab(val tab: HomeTab) : HomeIntent
     data class Search(val value: String) : HomeIntent
     data class Filter(val value: AssignmentFilter) : HomeIntent

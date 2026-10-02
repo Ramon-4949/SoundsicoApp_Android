@@ -119,6 +119,10 @@ class AuthFlowTest {
 
     private class FakeHome : HomeRepository {
         var calls = 0
+        override suspend fun loadEmployeeAssignments(userId: String) = emptyList<Assignment>()
+        override suspend fun loadDashboard() = AdminDashboard(DashboardMetrics(0, 0, 0, 0.0, emptyList()), emptyList())
+        override suspend fun loadAdminAssignments(offset: Int, filter: String, search: String) = AssignmentPage(emptyList(), null)
+        override suspend fun reviewAccount(userId: String, approved: Boolean) = Unit
         override suspend fun load(userId: String, administrator: Boolean): HomeContent {
             calls++
             return HomeContent(listOf(Assignment("a", "Evento", "campo", "alta", "pendiente", null, null, null)), emptyList())
