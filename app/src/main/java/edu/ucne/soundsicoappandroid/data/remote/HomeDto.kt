@@ -27,6 +27,7 @@ data class AssignmentDto(
         val ordered = milestones.sortedBy { it.order ?: 0 }
         val personal = ordered.takeIf { !administrator && supervisors.none { it.userId == userId } && ordered.isNotEmpty() }
             ?.filter { milestone -> milestone.collaborators.any { it.userId == userId } }
+            ?.takeIf { it.isNotEmpty() }
         val personalDeadline = personal?.lastOrNull()?.date
         val displayDeadline = if (personal != null) personalDeadline else deadline ?: ordered.lastOrNull()?.date
         val complete = personal?.let { own -> own.isNotEmpty() && own.all { milestone ->
@@ -82,9 +83,13 @@ data class MilestoneDto(
     @SerialName("sla_abierto") val slaOpen: Boolean? = null,
     @SerialName("hitos_colaboradores") val collaborators: List<CollaboratorDto> = emptyList()
 ) {
-    fun toDomain() = Milestone(id, assignmentId, order ?: 0, description.orEmpty(), estimatedTime, date,
-        completed == true || status == "completado", status, incidentNotes, completedAt, slaOpen,
-        collaborators.map { it.toDomain() })
+    fun toDomain(): Milestone {
+        val members = collaborators.map { it.toDomain() }
+        val collectivelyCompleted = if (members.isEmpty()) completed == true || status == "completado"
+        else members.all(MilestoneCollaborator::confirmed)
+        return Milestone(id, assignmentId, order ?: 0, description.orEmpty(), estimatedTime, date,
+            collectivelyCompleted, status, incidentNotes, completedAt, slaOpen, members)
+    }
 }
 
 @Serializable

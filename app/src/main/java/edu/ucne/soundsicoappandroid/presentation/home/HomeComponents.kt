@@ -41,6 +41,11 @@ internal fun HomeHeader(state: HomeState, onIntent: (HomeIntent) -> Unit) {
             IconButton({ onIntent(HomeIntent.Refresh) }, enabled = !state.loading) {
                 Icon(Icons.Outlined.Refresh, "Actualizar", Modifier.size(21.dp))
             }
+            IconButton({ onIntent(HomeIntent.OpenNotifications) }) {
+                BadgedBox(badge = { if (state.unreadNotifications > 0) Badge { Text(state.unreadNotifications.toString()) } }) {
+                    Icon(Icons.Outlined.NotificationsNone, "Notificaciones", Modifier.size(21.dp))
+                }
+            }
             FilledIconButton({ onIntent(HomeIntent.ToggleSearch) }, modifier = Modifier.size(40.dp)) {
                 Icon(if (state.searching) Icons.Outlined.Close else Icons.Outlined.Search, if (state.searching) "Cerrar búsqueda" else "Buscar")
             }

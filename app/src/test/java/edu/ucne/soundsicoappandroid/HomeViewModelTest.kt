@@ -6,6 +6,8 @@ import edu.ucne.soundsicoappandroid.domain.usecase.*
 import edu.ucne.soundsicoappandroid.presentation.home.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.*
 import org.junit.*
 import org.junit.Assert.*
@@ -23,7 +25,9 @@ class HomeViewModelTest {
     @Before fun setup() { Dispatchers.setMain(dispatcher) }
     @After fun cleanup() { Dispatchers.resetMain() }
 
-    private fun model() = HomeViewModel(user, GetProfileUseCase(auth), GetHomeContentUseCase(repository), SignOutUseCase(auth), admin)
+    private val preferences = TestPreferences()
+    private fun model() = HomeViewModel(user, GetProfileUseCase(auth), GetHomeContentUseCase(repository), SignOutUseCase(auth),
+        GetEmployeePerformanceUseCase(admin), DeleteAccountUseCase(auth), preferences, ManageAccountsUseCase(admin))
 
     @Test fun loadsAdminOnlyAfterApprovedServerProfile() = runTest(dispatcher) {
         auth.role = "admin"
@@ -124,6 +128,20 @@ class HomeViewModelTest {
         assertEquals(listOf("today"), model.state.value.visibleAssignments.map { it.id })
     }
 
+    @Test fun homeAppliesRealtimeDashboardChangesWithoutRefresh() = runTest(dispatcher) {
+        auth.role = "admin"
+        val model = model()
+        advanceUntilIdle()
+        val updated = HomeContent(repository.items, emptyList(),
+            AdminDashboard(DashboardMetrics(23, 8, 4, 91.0, listOf(2, 3, 4)), emptyList()))
+
+        repository.live.emit(updated)
+        advanceUntilIdle()
+
+        assertEquals(23, model.state.value.content.dashboard?.metrics?.total)
+        assertTrue(model.state.value.content.dashboard?.pendingAccounts?.isEmpty() == true)
+    }
+
     @Test fun performanceIsRestrictedToAdministrators() = runTest(dispatcher) {
         val employeeModel = model()
         advanceUntilIdle()
@@ -142,6 +160,43 @@ class HomeViewModelTest {
         assertEquals("Ana Pérez", adminModel.state.value.performance.single().name)
     }
 
+    @Test fun accessPanelLoadsAndReviewsAccountsForAdministratorsOnly() = runTest(dispatcher) {
+        val employeeModel = model()
+        advanceUntilIdle()
+        employeeModel.onIntent(HomeIntent.OpenDashboard)
+        employeeModel.onIntent(HomeIntent.RetryAccounts)
+        advanceUntilIdle()
+        assertEquals(0, admin.accountLoads)
+        assertEquals(ProfilePage.Overview, employeeModel.state.value.profilePage)
+        auth.role = "admin"
+        val administrator = model()
+        advanceUntilIdle()
+        administrator.onIntent(HomeIntent.OpenDashboard)
+        advanceUntilIdle()
+        assertEquals(ProfilePage.Accounts, administrator.state.value.profilePage)
+        assertEquals(AccountAccessState.Pending, administrator.state.value.accounts.single().state)
+        administrator.onIntent(HomeIntent.ReviewManagedAccount("pending", AccountAccessState.Approved))
+        advanceUntilIdle()
+        assertEquals(AccountAccessState.Approved, administrator.state.value.accounts.single().state)
+    }
+
+    @Test fun performanceUsesFirstDayOfSelectedMonth() = runTest(dispatcher) {
+        auth.role = "admin"
+        val model = model()
+        advanceUntilIdle()
+        model.onIntent(HomeIntent.OpenPerformance)
+        advanceUntilIdle()
+        model.onIntent(HomeIntent.ChangePerformanceMonth(java.time.YearMonth.of(2026, 9)))
+        advanceUntilIdle()
+        assertEquals("2026-09-01", admin.lastMonth)
+    }
+
+    @Test fun complianceIncludesUnconfirmedAndEmptyPeriodHasNoPercentage() {
+        val value = EmployeePerformance("id", "Ana", "T�cnico", 1, 2, 1, 2, null, emptyList(), 0, 0, 0, 0)
+        assertEquals(0.5, requireNotNull(value.compliance), 0.0001)
+        assertNull(value.copy(early = 0, onTime = 0, late = 0, unconfirmed = 0).compliance)
+    }
+
     private class TestAuth : AuthRepository {
         var role = "empleado"
         var access = AccountAccess.Approved
@@ -149,6 +204,7 @@ class HomeViewModelTest {
         override suspend fun login(email: String, password: String) { session.value = SessionState.SignedIn(AuthUser("user", email, "Ana")) }
         override suspend fun signUp(registration: Registration) { login(registration.email, registration.password) }
         override suspend fun signOut() { session.value = SessionState.SignedOut }
+        override suspend fun deleteAccount() { session.value = SessionState.SignedOut }
         override suspend fun profile(userId: String): EmployeeProfile {
             delay(10)
             return EmployeeProfile(userId, "Ana Pérez", "ana", "", "Técnico", role, access)
@@ -163,6 +219,7 @@ class HomeViewModelTest {
         var items = listOf(assignment)
         var failReview = false
         var reviews = 0
+        val live = MutableSharedFlow<HomeContent>(extraBufferCapacity = 1)
         override suspend fun loadEmployeeAssignments(userId: String) = items
         override suspend fun loadDashboard() = AdminDashboard(DashboardMetrics(17, 5, 2, 98.4, listOf(1, 2, 1, 3, 2, 1, 1)), listOf(account))
         override suspend fun load(userId: String, administrator: Boolean): HomeContent {
@@ -179,10 +236,21 @@ class HomeViewModelTest {
             delay(10)
             if (failReview) error("No se pudo guardar")
         }
+        override fun observe(userId: String, administrator: Boolean) = live
+    }
+
+    private class TestPreferences : LoginPreferences {
+        override fun rememberedEmail() = ""
+        override fun saveEmail(email: String?) = Unit
+        override fun biometricEnabled(userId: String) = false
+        override fun setBiometricEnabled(userId: String, enabled: Boolean) = Unit
     }
 
     private class TestAdmin : AdminRepository {
         var performanceLoads = 0
+        var accountLoads = 0
+        var lastMonth = ""
+        var account = ManagedAccount("pending", "Ana", "ana@empresa.com", null, "T�cnico", AccountAccessState.Pending, "2026-10-03T10:00:00Z")
         override suspend fun getDashboardMetrics() = DashboardMetrics(0, 0, 0, 0.0, emptyList())
         override suspend fun getAssignments(offset: Int, limit: Int, filter: AdminAssignmentFilter, search: String) =
             AdminAssignmentPage(emptyList(), false, null)
@@ -190,10 +258,11 @@ class HomeViewModelTest {
         override suspend fun createAssignment(draft: AssignmentDraft) = error("No disponible")
         override suspend fun updateAssignment(id: String, draft: AssignmentDraft) = error("No disponible")
         override suspend fun deleteAssignment(id: String) = Unit
-        override suspend fun getAccounts() = emptyList<ManagedAccount>()
-        override suspend fun reviewAccount(userId: String, state: AccountAccessState) = Unit
+        override suspend fun getAccounts(): List<ManagedAccount> { accountLoads++; return listOf(account) }
+        override suspend fun reviewAccount(userId: String, state: AccountAccessState) { account = account.copy(state = state) }
         override suspend fun getEmployeePerformance(month: String, employeeId: String?): List<EmployeePerformance> {
             performanceLoads++
+            lastMonth = month
             return listOf(EmployeePerformance("employee", "Ana Pérez", "Técnico", 1, 3, 0, 0, 0.0, emptyList(), 4, 4, 0, 0))
         }
         override suspend fun getEmployeeAvailability(window: AssignmentBookingWindow, excludingAssignmentId: String?) =

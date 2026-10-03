@@ -6,32 +6,43 @@ import edu.ucne.soundsicoappandroid.core.presentation.userMessage
 import edu.ucne.soundsicoappandroid.domain.model.Milestone
 import edu.ucne.soundsicoappandroid.domain.repository.AdminRepository
 import edu.ucne.soundsicoappandroid.domain.repository.MilestonesRepository
+import edu.ucne.soundsicoappandroid.domain.usecase.ConfirmMilestoneUseCase
+import edu.ucne.soundsicoappandroid.domain.usecase.ObserveAssignmentDetailsUseCase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import java.util.UUID
 
 class AssignmentDetailViewModel(
     private val assignmentId: String,
     private val userId: String,
     private val administrator: Boolean,
+    private val observeDetails: ObserveAssignmentDetailsUseCase,
+    private val confirmMilestone: ConfirmMilestoneUseCase,
     private val milestonesRepository: MilestonesRepository,
     private val adminRepository: AdminRepository
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(AssignmentDetailState())
     val state = mutableState.asStateFlow()
+    private var observation: Job? = null
 
     init {
-        load()
+        observe()
     }
 
     fun onIntent(intent: AssignmentDetailIntent) {
         when (intent) {
-            AssignmentDetailIntent.Refresh -> load()
+            AssignmentDetailIntent.Refresh -> observe()
             is AssignmentDetailIntent.CheckIn -> checkIn(intent.milestone)
             is AssignmentDetailIntent.ChangeNote -> mutableState.update { it.copy(note = intent.value.take(4000)) }
+            AssignmentDetailIntent.OpenNoteEditor -> mutableState.update { it.copy(noteEditorOpen = true) }
+            AssignmentDetailIntent.CloseNoteEditor -> if (!state.value.savingNote)
+                mutableState.update { it.copy(noteEditorOpen = false, note = "") }
             AssignmentDetailIntent.AddNote -> addNote()
             AssignmentDetailIntent.RequestDelete -> if (administrator) mutableState.update { it.copy(deleteConfirmation = true) }
             AssignmentDetailIntent.CancelDelete -> mutableState.update { it.copy(deleteConfirmation = false) }
@@ -40,21 +51,19 @@ class AssignmentDetailViewModel(
         }
     }
 
-    private fun load() {
-        if (state.value.loading && state.value.details != null) return
+    private fun observe() {
+        observation?.cancel()
         mutableState.update { it.copy(loading = true, error = null) }
-        viewModelScope.launch {
-            try {
-                val details = milestonesRepository.getDetails(assignmentId, userId)
-                mutableState.update { it.copy(details = details) }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                mutableState.update { it.copy(error = error.userMessage()) }
-            } finally {
-                mutableState.update { it.copy(loading = false) }
+        observation = viewModelScope.launch {
+            observeDetails(assignmentId, userId, administrator)
+                .catch { error ->
+                    if (error is CancellationException) throw error
+                    mutableState.update { it.copy(loading = false, error = error.userMessage()) }
+                }
+                .collectLatest { details ->
+                    mutableState.update { it.copy(details = details, loading = false, error = null) }
+                }
             }
-        }
     }
 
     private fun checkIn(milestone: Milestone) {
@@ -62,8 +71,8 @@ class AssignmentDetailViewModel(
         mutableState.update { it.copy(checkingMilestoneId = milestone.id, error = null) }
         viewModelScope.launch {
             try {
-                milestonesRepository.checkIn(milestone.id, userId)
-                val details = milestonesRepository.getDetails(assignmentId, userId)
+                val current = state.value.details ?: error("No se cargó la asignación.")
+                val details = confirmMilestone(current, milestone, userId)
                 mutableState.update { it.copy(details = details) }
             } catch (error: CancellationException) {
                 throw error
@@ -82,8 +91,8 @@ class AssignmentDetailViewModel(
         viewModelScope.launch {
             try {
                 milestonesRepository.addNote(UUID.randomUUID().toString(), assignmentId, content)
-                val details = milestonesRepository.getDetails(assignmentId, userId)
-                mutableState.update { it.copy(details = details, note = "") }
+                val details = milestonesRepository.getDetails(assignmentId, userId, administrator)
+                mutableState.update { it.copy(details = details, note = "", noteEditorOpen = false) }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {

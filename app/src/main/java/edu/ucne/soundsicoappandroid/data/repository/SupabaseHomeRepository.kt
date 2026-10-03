@@ -8,8 +8,17 @@ import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
+import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
+import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -73,6 +82,32 @@ class SupabaseHomeRepository(private val client: SupabaseClient) : HomeRepositor
         })
     }
 
+    override fun observe(userId: String, administrator: Boolean): Flow<HomeContent> = flow {
+        val channel = client.channel("home-$userId-${System.nanoTime()}")
+        val assignments = channel.postgresChangeFlow<PostgresAction>("public") { table = "asignaciones" }
+        val milestones = channel.postgresChangeFlow<PostgresAction>("public") { table = "hitos_itinerario" }
+        val collaborators = channel.postgresChangeFlow<PostgresAction>("public") { table = "hitos_colaboradores" }
+        val bulletins = channel.postgresChangeFlow<PostgresAction>("public") { table = "comunicados" }
+        val profiles = channel.postgresChangeFlow<PostgresAction>("public") { table = "perfiles" }
+        val team = channel.postgresChangeFlow<PostgresAction>("public") { table = "asignacion_equipo" }
+        val notifications = channel.postgresChangeFlow<PostgresAction>("public") { table = "notificaciones_app" }
+        try {
+            emit(load(userId, administrator))
+            channel.subscribe(true)
+            val polling = flow {
+                while (true) {
+                    delay(10_000)
+                    emit(Unit)
+                }
+            }
+            val changes = if (administrator) merge(assignments, milestones, collaborators, bulletins, profiles, notifications)
+            else merge(assignments, milestones, collaborators, bulletins, team)
+            changes.map { Unit }.mergeWith(polling).collect { emit(load(userId, administrator)) }
+        } finally {
+            client.realtime.removeChannel(channel)
+        }
+    }
+
     private suspend fun loadBulletins(): List<Bulletin> {
         val result = mutableListOf<BulletinDto>()
         var offset = 0L
@@ -86,4 +121,6 @@ class SupabaseHomeRepository(private val client: SupabaseClient) : HomeRepositor
         } while (page.size == 200)
         return result.map { it.toDomain() }
     }
+
+    private fun Flow<Unit>.mergeWith(other: Flow<Unit>): Flow<Unit> = merge(this, other)
 }

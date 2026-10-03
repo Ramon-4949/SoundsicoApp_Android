@@ -7,6 +7,8 @@ import edu.ucne.soundsicoappandroid.domain.repository.MilestonesRepository
 import edu.ucne.soundsicoappandroid.presentation.assignmentdetail.AssignmentDetailIntent
 import edu.ucne.soundsicoappandroid.presentation.assignmentdetail.AssignmentDetailViewModel
 import edu.ucne.soundsicoappandroid.presentation.assignmentdetail.isConfirmed
+import edu.ucne.soundsicoappandroid.domain.usecase.ConfirmMilestoneUseCase
+import edu.ucne.soundsicoappandroid.domain.usecase.ObserveAssignmentDetailsUseCase
 import edu.ucne.soundsicoappandroid.presentation.bulletindetail.BulletinDetailIntent
 import edu.ucne.soundsicoappandroid.presentation.bulletindetail.BulletinDetailViewModel
 import kotlinx.coroutines.Dispatchers
@@ -42,7 +44,8 @@ class DetailViewModelsTest {
     fun administratorCanDeleteAssignmentFromDetail() = runTest(dispatcher) {
         val admin = DetailAdminRepository()
         val milestones = DetailMilestonesRepository()
-        val model = AssignmentDetailViewModel("assignment", "admin", true, milestones, admin)
+        val model = AssignmentDetailViewModel("assignment", "admin", true,
+            ObserveAssignmentDetailsUseCase(milestones), ConfirmMilestoneUseCase(milestones), milestones, admin)
         advanceUntilIdle()
 
         assertEquals("Montaje", model.state.value.details?.assignment?.title)
@@ -79,7 +82,8 @@ class DetailViewModelsTest {
     @Test
     fun checklistConfirmationReloadsTheCollaboratorsMilestone() = runTest(dispatcher) {
         val milestones = DetailMilestonesRepository()
-        val model = AssignmentDetailViewModel("assignment", "employee", false, milestones, DetailAdminRepository())
+        val model = AssignmentDetailViewModel("assignment", "employee", false,
+            ObserveAssignmentDetailsUseCase(milestones), ConfirmMilestoneUseCase(milestones), milestones, DetailAdminRepository())
         advanceUntilIdle()
         val milestone = requireNotNull(model.state.value.details).assignment.milestones.single()
 
@@ -113,7 +117,7 @@ class DetailViewModelsTest {
             )
         )
 
-        override suspend fun getDetails(assignmentId: String, userId: String) =
+        override suspend fun getDetails(assignmentId: String, userId: String, administrator: Boolean) =
             AssignmentDetails(assignment, currentCheckIns(userId), emptyList(), emptyList())
         override suspend fun getCheckIns(assignmentId: String, userId: String) = emptyList<MilestoneCheckIn>()
         override suspend fun getNotes(assignmentId: String) = emptyList<AssignmentNote>()
@@ -123,7 +127,7 @@ class DetailViewModelsTest {
             return MilestoneCheckIn("check-in", milestoneId, userId, "2026-10-02T12:00:00-04:00", "pendiente")
         }
         override suspend fun addNote(id: String, assignmentId: String, content: String) = Unit
-        override fun observeDetails(assignmentId: String, userId: String): Flow<AssignmentDetails> =
+        override fun observeDetails(assignmentId: String, userId: String, administrator: Boolean): Flow<AssignmentDetails> =
             flowOf(AssignmentDetails(assignment, emptyList(), emptyList(), emptyList()))
 
         private fun currentCheckIns(userId: String) = confirmedMilestoneId?.let {

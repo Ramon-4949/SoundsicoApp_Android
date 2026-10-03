@@ -10,7 +10,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Lock
@@ -37,16 +36,15 @@ fun AssignmentChecklistScreen(
     userId: String,
     administrator: Boolean,
     onIntent: (AssignmentDetailIntent) -> Unit,
-    onBack: () -> Unit,
-    onFinished: () -> Unit
+    onBack: () -> Unit
 ) {
     BackHandler(onBack = onBack)
+    val oversight = details.canOversee(userId, administrator)
     val milestones = details.assignment.milestones
-        .filter { administrator || it.collaborators.any { collaborator -> collaborator.userId == userId } }
+        .filter { oversight || it.collaborators.any { collaborator -> collaborator.userId == userId } }
         .sortedBy { it.order }
-    val completion = milestones.associateWith { milestone -> milestone.isConfirmed(details, userId, administrator) }
+    val completion = milestones.associateWith { milestone -> milestone.isConfirmed(details, userId, oversight) }
     val activeIndex = milestones.indexOfFirst { completion[it] != true }
-    val finished = milestones.isNotEmpty() && activeIndex == -1
     Scaffold(
         topBar = {
             TopAppBar(
@@ -57,19 +55,6 @@ fun AssignmentChecklistScreen(
                     }
                 }
             )
-        },
-        bottomBar = {
-            Surface(shadowElevation = 8.dp) {
-                Button(
-                    onFinished,
-                    Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp).height(50.dp),
-                    enabled = finished
-                ) {
-                    Text("Finalizar")
-                    Spacer(Modifier.width(7.dp))
-                    Icon(Icons.AutoMirrored.Outlined.ArrowForward, null, Modifier.size(18.dp))
-                }
-            }
         }
     ) { padding ->
         LazyColumn(
@@ -90,7 +75,8 @@ fun AssignmentChecklistScreen(
                 val confirmed = completion[milestone] == true
                 val active = index == activeIndex
                 val locked = !confirmed && !active
-                ChecklistMilestone(
+                if (oversight) TeamMilestone(milestone, details, index + 1, active, index < milestones.lastIndex)
+                else ChecklistMilestone(
                     milestone,
                     index + 1,
                     confirmed,
@@ -99,6 +85,7 @@ fun AssignmentChecklistScreen(
                     index < milestones.lastIndex,
                     state.checkingMilestoneId == milestone.id,
                     administrator,
+                    milestone.collaborators.firstOrNull { it.userId == userId }?.deliveryLabel() ?: "Sin confirmar",
                     onConfirm = { onIntent(AssignmentDetailIntent.CheckIn(milestone)) }
                 )
             }
@@ -124,6 +111,7 @@ private fun ChecklistMilestone(
     hasNext: Boolean,
     checking: Boolean,
     administrator: Boolean,
+    delivery: String,
     onConfirm: () -> Unit
 ) {
     Row(Modifier.fillMaxWidth()) {
@@ -159,6 +147,7 @@ private fun ChecklistMilestone(
             ) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     MilestoneHeader(milestone, Color.Unspecified)
+                    Text(delivery, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (!administrator) Button(
                         onConfirm,
                         Modifier.fillMaxWidth().height(46.dp),
@@ -174,11 +163,12 @@ private fun ChecklistMilestone(
                 }
             }
         } else {
-            Box(Modifier.weight(1f).padding(top = 3.dp, bottom = 25.dp)) {
+            Column(Modifier.weight(1f).padding(top = 3.dp, bottom = 25.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 MilestoneHeader(
                     milestone,
                     if (locked) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f) else Color.Unspecified
                 )
+                Text(delivery, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -195,8 +185,7 @@ private fun MilestoneHeader(milestone: Milestone, color: Color) {
 }
 
 internal fun Milestone.isConfirmed(details: AssignmentDetails, userId: String, administrator: Boolean): Boolean {
-    if (completed) return true
-    if (administrator) return collaborators.isNotEmpty() && collaborators.all { it.confirmed }
+    if (administrator) return globallyCompleted
     return collaborators.any { it.userId == userId && it.confirmed } ||
         details.checkIns.any { it.milestoneId == id && it.userId == userId }
 }
@@ -205,3 +194,74 @@ private fun checklistTime(value: String) = runCatching {
     OffsetDateTime.parse(value).atZoneSameInstant(ZoneId.systemDefault())
         .format(DateTimeFormatter.ofPattern("hh:mm a", Locale.US))
 }.getOrDefault(value)
+
+internal fun AssignmentDetails.canOversee(userId: String, administrator: Boolean): Boolean =
+    administrator || assignment.supervisors.any { it.userId == userId } ||
+        collaborators.any { it.id == userId && it.supervisor }
+
+@Composable
+private fun TeamMilestone(
+    milestone: Milestone,
+    details: AssignmentDetails,
+    number: Int,
+    active: Boolean,
+    hasNext: Boolean
+) {
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+        Column(Modifier.width(36.dp).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Surface(
+                Modifier.size(26.dp),
+                shape = CircleShape,
+                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    if (milestone.globallyCompleted) Icon(Icons.Outlined.Check, "Completado", Modifier.size(16.dp))
+                    else Text(number.toString(), color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (hasNext) Box(Modifier.width(2.dp).weight(1f).background(MaterialTheme.colorScheme.outlineVariant))
+        }
+        Column(Modifier.weight(1f).padding(start = 4.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            MilestoneHeader(milestone, Color.Unspecified)
+            if (active) Text("En curso", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp)
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                border = BorderStroke(1.dp, if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (milestone.collaborators.isEmpty()) Text("Sin colaboradores asignados", fontSize = 12.sp)
+                    milestone.collaborators.forEach { member ->
+                        val name = member.employee?.name?.takeIf { it.isNotBlank() }
+                            ?: details.collaborators.firstOrNull { it.id == member.userId }?.name ?: "Colaborador"
+                        val tint = when {
+                            !member.confirmed -> MaterialTheme.colorScheme.error
+                            member.status == "temprano" -> Color(0xFF168568)
+                            member.status == "tardio" -> Color(0xFFAD6500)
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (member.confirmed) "✓" else "!", color = tint, modifier = Modifier.padding(end = 6.dp))
+                            Text(name, Modifier.weight(1f), fontSize = 12.sp)
+                            Surface(shape = RoundedCornerShape(20.dp), color = tint.copy(alpha = 0.1f)) {
+                                Text(member.deliveryLabel(), Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = tint, fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+internal fun edu.ucne.soundsicoappandroid.domain.model.MilestoneCollaborator.deliveryLabel(): String {
+    if (!confirmed) return "Sin confirmar"
+    val minutes = runCatching {
+        kotlin.math.abs(java.time.Duration.between(OffsetDateTime.parse(scheduledAt), OffsetDateTime.parse(confirmedAt)).toMinutes())
+    }.getOrNull()
+    return when (status) {
+        "temprano" -> "Temprano" + (minutes?.let { if (it > 0) " (-$it min)" else " (<1 min)" } ?: "")
+        "tardio" -> "Tardío" + (minutes?.let { if (it > 0) " (+$it min)" else " (<1 min)" } ?: "")
+        else -> "A tiempo"
+    }
+}

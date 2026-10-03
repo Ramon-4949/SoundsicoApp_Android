@@ -17,7 +17,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
-class SupabaseAuthRepository(private val client: SupabaseClient) : AuthRepository {
+class SupabaseAuthRepository(private val client: SupabaseClient, private val push: edu.ucne.soundsicoappandroid.core.notifications.PushRegistration) : AuthRepository {
     override val session = client.auth.sessionStatus.map { status ->
         when (status) {
             is SessionStatus.Initializing -> SessionState.Loading
@@ -57,10 +57,14 @@ class SupabaseAuthRepository(private val client: SupabaseClient) : AuthRepositor
         }
     }
 
-    override suspend fun signOut() = client.auth.signOut()
+    override suspend fun signOut() {
+        push.disconnect()
+        client.auth.signOut()
+    }
 
     override suspend fun deleteAccount() {
         client.postgrest.rpc("delete_my_account")
+        push.clear()
         client.auth.signOut()
     }
 

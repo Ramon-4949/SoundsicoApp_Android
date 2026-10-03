@@ -7,6 +7,7 @@ import edu.ucne.soundsicoappandroid.presentation.login.*
 import edu.ucne.soundsicoappandroid.presentation.home.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.*
 import org.junit.After
 import org.junit.Before
@@ -65,7 +66,8 @@ class AuthFlowTest {
     @Test fun pendingAndRejectedAccountsCannotLoadHomeData() = runTest(dispatcher) {
         val home = FakeHome()
         val model = HomeViewModel(AuthUser("u", "ana@empresa.com", "Ana"),
-            GetProfileUseCase(auth), GetHomeContentUseCase(home), SignOutUseCase(auth), FakeAdmin())
+            GetProfileUseCase(auth), GetHomeContentUseCase(home), SignOutUseCase(auth), GetEmployeePerformanceUseCase(FakeAdmin()),
+            DeleteAccountUseCase(auth), preferences, ManageAccountsUseCase(FakeAdmin()))
         advanceUntilIdle()
         assertEquals(AccountAccess.Pending, model.state.value.profile?.access)
         assertEquals(0, home.calls)
@@ -108,6 +110,7 @@ class AuthFlowTest {
         }
         override suspend fun signUp(registration: Registration) { registered = registration }
         override suspend fun signOut() { session.value = SessionState.SignedOut }
+        override suspend fun deleteAccount() { session.value = SessionState.SignedOut }
         override suspend fun profile(userId: String) = EmployeeProfile(userId, "Ana", "ana", "8095551234", "Técnico de sonido", "empleado", access)
     }
 
@@ -115,6 +118,8 @@ class AuthFlowTest {
         var email = ""
         override fun rememberedEmail() = email
         override fun saveEmail(email: String?) { this.email = email.orEmpty() }
+        override fun biometricEnabled(userId: String) = false
+        override fun setBiometricEnabled(userId: String, enabled: Boolean) = Unit
     }
 
     private class FakeHome : HomeRepository {
@@ -127,6 +132,7 @@ class AuthFlowTest {
             calls++
             return HomeContent(listOf(Assignment("a", "Evento", "campo", "alta", "pendiente", null, null, null)), emptyList())
         }
+        override fun observe(userId: String, administrator: Boolean) = emptyFlow<HomeContent>()
     }
 
     private class FakeAdmin : AdminRepository {

@@ -11,13 +11,15 @@ enum class AssignmentFilter(val title: String, val serverValue: String) {
     Overdue("Vencidas", "vencidas"), Complete("Completadas", "completadas")
 }
 enum class HomeAudience { Resolving, Restricted, Administrator, Employee }
-enum class ProfilePage { Overview, Performance }
+enum class ProfilePage { Overview, Performance, Accounts }
 data class AccountReview(val account: PendingAccount, val approved: Boolean)
 
 data class HomeState(
     val user: AuthUser,
     val profile: EmployeeProfile? = null,
     val tab: HomeTab = HomeTab.Start,
+    val notificationsOpen: Boolean = false,
+    val unreadNotifications: Int = 0,
     val loading: Boolean = true,
     val signingOut: Boolean = false,
     val failure: String? = null,
@@ -41,6 +43,11 @@ data class HomeState(
     val calendarLoading: Boolean = false,
     val calendarFailure: String? = null,
     val profilePage: ProfilePage = ProfilePage.Overview,
+    val accounts: List<ManagedAccount> = emptyList(),
+    val accountsLoading: Boolean = false,
+    val accountsFailure: String? = null,
+    val reviewingAccount: String? = null,
+    val performanceMonth: java.time.YearMonth = java.time.YearMonth.now(java.time.ZoneId.of("America/Santo_Domingo")),
     val performance: List<EmployeePerformance> = emptyList(),
     val performanceLoading: Boolean = false,
     val performanceFailure: String? = null,
@@ -75,6 +82,8 @@ fun Assignment.occursOn(date: LocalDate): Boolean = (scheduledDates + listOfNotN
 }
 
 sealed interface HomeIntent {
+    data object OpenNotifications : HomeIntent
+    data object CloseNotifications : HomeIntent
     data object Refresh : HomeIntent
     data object SignOut : HomeIntent
     data object ToggleSearch : HomeIntent
@@ -94,6 +103,9 @@ sealed interface HomeIntent {
     data class SelectDate(val value: LocalDate) : HomeIntent
     data class OpenAssignment(val value: Assignment) : HomeIntent
     data class OpenBulletin(val value: Bulletin) : HomeIntent
+    data object RetryAccounts : HomeIntent
+    data class ReviewManagedAccount(val id: String, val access: AccountAccessState) : HomeIntent
+    data class ChangePerformanceMonth(val month: java.time.YearMonth) : HomeIntent
     data object OpenDashboard : HomeIntent
     data object OpenPerformance : HomeIntent
     data object ClosePerformance : HomeIntent

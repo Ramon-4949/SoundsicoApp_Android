@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import edu.ucne.soundsicoappandroid.core.presentation.userMessage
 import edu.ucne.soundsicoappandroid.domain.model.*
-import edu.ucne.soundsicoappandroid.domain.repository.AdminRepository
 import edu.ucne.soundsicoappandroid.domain.repository.LoginPreferences
 import edu.ucne.soundsicoappandroid.domain.usecase.*
 import kotlinx.coroutines.CancellationException
@@ -12,6 +11,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
@@ -22,9 +23,10 @@ class HomeViewModel(
     private val getProfile: GetProfileUseCase,
     private val getContent: GetHomeContentUseCase,
     private val signOut: SignOutUseCase,
-    private val adminRepository: AdminRepository,
+    private val getEmployeePerformance: GetEmployeePerformanceUseCase,
     private val deleteAccount: DeleteAccountUseCase,
-    private val preferences: LoginPreferences
+    private val preferences: LoginPreferences,
+    private val manageAccounts: ManageAccountsUseCase
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(HomeState(user, biometricEnabled = preferences.biometricEnabled(user.id)))
     val state = mutableState.asStateFlow()
@@ -33,11 +35,15 @@ class HomeViewModel(
     private var pageGeneration = 0
     private var calendarJob: Job? = null
     private var performanceJob: Job? = null
+    private var accountsJob: Job? = null
+    private var homeObservation: Job? = null
 
     init { refresh() }
 
     fun onIntent(intent: HomeIntent) {
         when (intent) {
+            HomeIntent.OpenNotifications -> mutableState.update { it.copy(notificationsOpen = true) }
+            HomeIntent.CloseNotifications -> mutableState.update { it.copy(notificationsOpen = false) }
             HomeIntent.Refresh -> refresh()
             HomeIntent.SignOut -> logout()
             HomeIntent.ToggleSearch -> {
@@ -74,8 +80,17 @@ class HomeViewModel(
             is HomeIntent.SelectDate -> mutableState.update { it.copy(selectedDate = intent.value) }
             is HomeIntent.OpenAssignment -> mutableState.update { it.copy(assignment = intent.value) }
             is HomeIntent.OpenBulletin -> mutableState.update { it.copy(bulletin = intent.value) }
-            HomeIntent.OpenDashboard -> if (state.value.audience == HomeAudience.Administrator)
-                mutableState.update { it.copy(tab = HomeTab.Start, profilePage = ProfilePage.Overview) }
+            HomeIntent.OpenDashboard -> if (state.value.audience == HomeAudience.Administrator) {
+                mutableState.update { it.copy(profilePage = ProfilePage.Accounts) }
+                loadAccounts()
+            }
+            HomeIntent.RetryAccounts -> loadAccounts()
+            is HomeIntent.ReviewManagedAccount -> reviewManagedAccount(intent)
+            is HomeIntent.ChangePerformanceMonth -> {
+                performanceJob?.cancel()
+                mutableState.update { it.copy(performanceMonth = intent.month, performance = emptyList()) }
+                loadPerformance()
+            }
             HomeIntent.OpenPerformance -> if (state.value.audience == HomeAudience.Administrator) {
                 mutableState.update { it.copy(profilePage = ProfilePage.Performance) }
                 loadPerformance()
@@ -101,26 +116,30 @@ class HomeViewModel(
 
     private fun refresh() {
         if (refreshJob?.isActive == true || state.value.signingOut || state.value.savingAccount) return
+        accountsJob?.cancel()
         pageJob?.cancel()
         calendarJob?.cancel()
         performanceJob?.cancel()
+        homeObservation?.cancel()
         pageGeneration++
         mutableState.update { it.copy(loading = true, failure = null, listFailure = null,
             listLoading = false, loadingMore = false, today = LocalDate.now(),
             profile = null, content = HomeContent(emptyList(), emptyList()), assignment = null, approvalsOpen = false, review = null,
             calendarAssignments = null, calendarLoading = false, calendarFailure = null,
+            accounts = emptyList(), accountsLoading = false, accountsFailure = null,
             profilePage = ProfilePage.Overview, performance = emptyList(), performanceLoading = false, performanceFailure = null) }
         refreshJob = viewModelScope.launch {
             try {
                 val profile = getProfile(state.value.user.id)
                 mutableState.update { it.copy(profile = profile) }
                 if (profile.access == AccountAccess.Approved) {
-                    val content = getContent(profile.id, profile.isAdministrator)
+                    val content = getContent(profile)
                     mutableState.update { it.copy(content = content) }
                     if (profile.isAdministrator && (state.value.filter != AssignmentFilter.All || state.value.search.isNotBlank())) {
-                        val page = getContent.adminAssignments(0, state.value.filter.serverValue, state.value.search)
+                        val page = getContent.adminAssignments(profile, 0, state.value.filter.serverValue, state.value.search)
                         mutableState.update { it.copy(content = it.content.copy(assignments = page.items, nextOffset = page.nextOffset)) }
                     }
+                    observeHome(profile)
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -145,7 +164,7 @@ class HomeViewModel(
         pageJob = viewModelScope.launch {
             try {
                 if (debounce) delay(300)
-                val page = getContent.adminAssignments(offset, input.filter.serverValue, input.search)
+                val page = getContent.adminAssignments(requireNotNull(input.profile), offset, input.filter.serverValue, input.search)
                 if (generation == pageGeneration) mutableState.update {
                     it.copy(content = it.content.copy(
                         assignments = (if (append) it.content.assignments + page.items else page.items).distinctBy(Assignment::id),
@@ -162,6 +181,29 @@ class HomeViewModel(
         }
     }
 
+    private fun observeHome(profile: EmployeeProfile) {
+        homeObservation?.cancel()
+        homeObservation = viewModelScope.launch {
+            getContent.observe(profile)
+                .catch { error ->
+                    if (error is CancellationException) throw error
+                    mutableState.update { it.copy(actionFailure = error.userMessage()) }
+                }
+                .collectLatest { live ->
+                    if (profile.isAdministrator && (state.value.filter != AssignmentFilter.All || state.value.search.isNotBlank())) {
+                        val page = getContent.adminAssignments(profile, 0, state.value.filter.serverValue, state.value.search)
+                        mutableState.update {
+                            it.copy(content = live.copy(assignments = page.items, nextOffset = page.nextOffset))
+                        }
+                    } else {
+                        mutableState.update { it.copy(content = live) }
+                    }
+                    if (state.value.profilePage == ProfilePage.Performance) loadPerformance()
+                    if (state.value.profilePage == ProfilePage.Accounts) loadAccounts()
+                }
+        }
+    }
+
     private fun reviewAccount() {
         val input = state.value
         val review = input.review ?: return
@@ -169,7 +211,7 @@ class HomeViewModel(
         mutableState.update { it.copy(savingAccount = true, actionFailure = null) }
         viewModelScope.launch {
             try {
-                getContent.reviewAccount(review.account.id, review.approved)
+                getContent.reviewAccount(requireNotNull(input.profile), review.account.id, review.approved)
                 mutableState.update { current ->
                     current.copy(review = null, content = current.content.copy(dashboard = current.content.dashboard?.let {
                         it.copy(pendingAccounts = it.pendingAccounts.filterNot { account -> account.id == review.account.id })
@@ -191,7 +233,7 @@ class HomeViewModel(
         mutableState.update { it.copy(calendarLoading = true, calendarFailure = null) }
         calendarJob = viewModelScope.launch {
             try {
-                val assignments = getContent.adminCalendar()
+                val assignments = getContent.adminCalendar(requireNotNull(state.value.profile))
                 mutableState.update { it.copy(calendarAssignments = assignments) }
             } catch (error: CancellationException) {
                 throw error
@@ -208,7 +250,7 @@ class HomeViewModel(
         mutableState.update { it.copy(performanceLoading = true, performanceFailure = null) }
         performanceJob = viewModelScope.launch {
             try {
-                val values = adminRepository.getEmployeePerformance(java.time.YearMonth.now().toString())
+                val values = getEmployeePerformance(requireNotNull(state.value.profile), state.value.performanceMonth.atDay(1).toString())
                 mutableState.update { it.copy(performance = values) }
             } catch (error: CancellationException) {
                 throw error
@@ -220,11 +262,52 @@ class HomeViewModel(
         }
     }
 
+    private fun loadAccounts() {
+        if (state.value.audience != HomeAudience.Administrator || accountsJob?.isActive == true) return
+        accountsJob = viewModelScope.launch {
+            mutableState.update { it.copy(accountsLoading = true, accountsFailure = null) }
+            try {
+                val accounts = manageAccounts.load(requireNotNull(state.value.profile))
+                mutableState.update { it.copy(accounts = accounts) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                mutableState.update { it.copy(accountsFailure = error.userMessage()) }
+            } finally {
+                mutableState.update { it.copy(accountsLoading = false) }
+            }
+        }
+    }
+
+    private fun reviewManagedAccount(intent: HomeIntent.ReviewManagedAccount) {
+        if (state.value.audience != HomeAudience.Administrator || state.value.reviewingAccount != null) return
+        if (state.value.accounts.none { it.id == intent.id }) return
+        mutableState.update { it.copy(reviewingAccount = intent.id, accountsFailure = null) }
+        viewModelScope.launch {
+            try {
+                manageAccounts.review(requireNotNull(state.value.profile), intent.id, intent.access)
+                accountsJob?.cancel()
+                mutableState.update { current -> current.copy(accounts = current.accounts.map {
+                    if (it.id == intent.id) it.copy(state = intent.access) else it
+                }) }
+                loadAccounts()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                mutableState.update { it.copy(accountsFailure = error.userMessage()) }
+            } finally {
+                mutableState.update { it.copy(reviewingAccount = null) }
+            }
+        }
+    }
+
     private fun logout() {
         if (state.value.signingOut || state.value.savingAccount) return
+        accountsJob?.cancel()
         refreshJob?.cancel()
         calendarJob?.cancel()
         performanceJob?.cancel()
+        homeObservation?.cancel()
         pageJob?.cancel()
         pageGeneration++
         mutableState.update { it.copy(signingOut = true, failure = null) }

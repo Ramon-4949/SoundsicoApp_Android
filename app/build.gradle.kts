@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "edu.ucne.soundsicoappandroid"
     compileSdk {
@@ -41,6 +45,10 @@ android {
 }
 
 dependencies {
+    implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
+    implementation("com.google.firebase:firebase-messaging")
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
     coreLibraryDesugaring(libs.android.desugar)
     implementation(platform(libs.supabase.bom))
     implementation(libs.supabase.auth)
