@@ -32,7 +32,13 @@ data class EmployeePerformance(
     val completed: Int,
     val active: Int,
     val overdue: Int
-)
+) {
+    val evaluated: Int get() = early + onTime + late + unconfirmed
+    val compliance: Double? get() = if (evaluated == 0) null else (early + onTime).toDouble() / evaluated
+    val confirmedMilestones: Int get() = early + onTime + late
+    val onTimeRatio: Double get() = if (confirmedMilestones == 0) 0.0 else (early + onTime).toDouble() / confirmedMilestones
+    val delayedRatio: Double get() = if (confirmedMilestones == 0) 0.0 else late.toDouble() / confirmedMilestones
+}
 
 data class EmployeeAvailability(
     val id: String,

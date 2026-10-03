@@ -39,9 +39,14 @@ fun AssignmentDetailScreen(
     onEdit: (Assignment) -> Unit,
     onDeleted: () -> Unit
 ) {
+    var teamOpen by rememberSaveable { mutableStateOf(false) }
     var checklistOpen by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(state.deleted) {
         if (state.deleted) onDeleted()
+    }
+    if (teamOpen && state.details != null) {
+        AssignmentTeamScreen(state.details.collaborators) { teamOpen = false }
+        return
     }
     if (checklistOpen && state.details != null) {
         AssignmentChecklistScreen(
@@ -50,8 +55,7 @@ fun AssignmentDetailScreen(
             userId,
             administrator,
             onIntent,
-            onBack = { checklistOpen = false },
-            onFinished = { checklistOpen = false }
+            onBack = { checklistOpen = false }
         )
         return
     }
@@ -72,15 +76,28 @@ fun AssignmentDetailScreen(
                     }
                 }
             )
+        },
+        bottomBar = {
+            if (state.details != null) Surface(shadowElevation = 8.dp) {
+                Button(
+                    { onIntent(AssignmentDetailIntent.OpenNoteEditor) },
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).heightIn(min = 50.dp)
+                ) {
+                    Icon(Icons.Outlined.EditNote, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Añadir Nota / Reportar Incidencia")
+                }
+            }
         }
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             if (state.loading && state.details == null) CircularProgressIndicator(Modifier.align(Alignment.Center))
             state.details?.let { details ->
-                AssignmentDetailContent(details, state, userId, administrator, onIntent) { checklistOpen = true }
+                AssignmentDetailContent(details, state, userId, administrator, onOpenTeam = { teamOpen = true }) { checklistOpen = true }
             }
         }
     }
+    if (state.noteEditorOpen) AssignmentNoteEditor(state, onIntent)
     if (state.deleteConfirmation) AlertDialog(
         onDismissRequest = { onIntent(AssignmentDetailIntent.CancelDelete) },
         icon = { Icon(Icons.Outlined.DeleteForever, null, tint = MaterialTheme.colorScheme.error) },
@@ -110,11 +127,12 @@ private fun AssignmentDetailContent(
     state: AssignmentDetailState,
     userId: String,
     administrator: Boolean,
-    onIntent: (AssignmentDetailIntent) -> Unit,
+    onOpenTeam: () -> Unit,
     onOpenChecklist: () -> Unit
 ) {
     val assignment = details.assignment
-    val milestones = if (administrator) assignment.milestones else assignment.milestones.filter { milestone ->
+    val oversight = details.canOversee(userId, administrator)
+    val milestones = if (oversight) assignment.milestones else assignment.milestones.filter { milestone ->
         milestone.collaborators.any { it.userId == userId }
     }
     LazyColumn(
@@ -153,38 +171,17 @@ private fun AssignmentDetailContent(
             DetailSurface {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     Icon(Icons.Outlined.Schedule, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                    DetailLabel(if (administrator) "CRONOGRAMA OPERATIVO" else "MIS HITOS ASIGNADOS")
+                    DetailLabel(if (oversight) "CRONOGRAMA OPERATIVO" else "MIS HITOS ASIGNADOS")
                 }
                 Spacer(Modifier.height(8.dp))
                 if (milestones.isEmpty()) Text("No hay hitos asignados.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 milestones.sortedBy { it.order }.forEach { milestone ->
-                    MilestoneDetailRow(milestone, state, userId)
+                    MilestoneDetailRow(milestone, state, userId, oversight)
                 }
             }
         }
         if (details.collaborators.isNotEmpty()) item {
-            DetailSurface {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Icon(Icons.Outlined.Groups, null, Modifier.size(19.dp), tint = MaterialTheme.colorScheme.primary)
-                    DetailLabel("COLABORADORES ASIGNADOS")
-                }
-                Spacer(Modifier.height(9.dp))
-                details.collaborators.sortedByDescending { it.supervisor }.forEach { collaborator ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Surface(Modifier.size(38.dp), shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(collaborator.name.initials(), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        Spacer(Modifier.width(9.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(collaborator.name, fontWeight = FontWeight.SemiBold)
-                            Text(collaborator.position.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (collaborator.supervisor) AssistChip(onClick = {}, label = { Text("Supervisor", fontSize = 9.sp) })
-                    }
-                }
-            }
+            AssignmentTeamSummary(details.collaborators, onOpenTeam)
         }
         assignment.instructions?.takeIf(String::isNotBlank)?.let { instructions ->
             item {
@@ -206,7 +203,7 @@ private fun AssignmentDetailContent(
                         Text("Checklist", Modifier.weight(1f), fontWeight = FontWeight.Bold)
                         Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(12.dp)) {
                             Text(
-                                "${milestones.count { it.isConfirmed(details, userId, administrator) }} / ${milestones.size}",
+                                "${milestones.count { it.isConfirmed(details, userId, oversight) }} / ${milestones.size}",
                                 Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -228,23 +225,7 @@ private fun AssignmentDetailContent(
                 }
             }
         }
-        item {
-            DetailSurface {
-                DetailLabel("AÑADIR NOTA")
-                OutlinedTextField(
-                    state.note,
-                    { onIntent(AssignmentDetailIntent.ChangeNote(it)) },
-                    Modifier.fillMaxWidth(),
-                    placeholder = { Text("Escribe una nota o incidencia") },
-                    minLines = 2,
-                    trailingIcon = {
-                        IconButton({ onIntent(AssignmentDetailIntent.AddNote) }, enabled = state.note.trim().length >= 3 && !state.savingNote) {
-                            Icon(Icons.AutoMirrored.Outlined.Send, "Guardar nota")
-                        }
-                    }
-                )
-            }
-        }
+
     }
 }
 
@@ -252,16 +233,18 @@ private fun AssignmentDetailContent(
 private fun MilestoneDetailRow(
     milestone: Milestone,
     state: AssignmentDetailState,
-    userId: String
+    userId: String,
+    oversight: Boolean
 ) {
     val collaborator = milestone.collaborators.firstOrNull { it.userId == userId }
-    val confirmed = collaborator?.confirmed == true || state.details?.checkIns?.any { it.milestoneId == milestone.id } == true
+    val confirmed = if (oversight) milestone.globallyCompleted else
+        collaborator?.confirmed == true || state.details?.checkIns?.any { it.milestoneId == milestone.id && it.userId == userId } == true
     Column(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(milestone.scheduledAt?.let(::detailDate) ?: milestone.estimatedTime.orEmpty(), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.width(10.dp))
             Box(Modifier.size(5.dp), contentAlignment = Alignment.Center) {
-                Surface(Modifier.fillMaxSize(), shape = CircleShape, color = if (confirmed || milestone.completed) Color(0xFF54B96B) else MaterialTheme.colorScheme.primary) {}
+                Surface(Modifier.fillMaxSize(), shape = CircleShape, color = if (confirmed) Color(0xFF54B96B) else MaterialTheme.colorScheme.primary) {}
             }
             Spacer(Modifier.width(8.dp))
             Text(milestone.title, Modifier.weight(1f), fontSize = 12.sp)
@@ -294,3 +277,41 @@ private fun detailDate(value: String) = runCatching {
     OffsetDateTime.parse(value).atZoneSameInstant(ZoneId.systemDefault())
         .format(DateTimeFormatter.ofPattern("d MMM yyyy · h:mm a", Locale.forLanguageTag("es")))
 }.getOrDefault(value)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AssignmentNoteEditor(state: AssignmentDetailState, onIntent: (AssignmentDetailIntent) -> Unit) {
+    ModalBottomSheet(
+        onDismissRequest = { onIntent(AssignmentDetailIntent.CloseNoteEditor) },
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f).imePadding().padding(16.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(
+                    { onIntent(AssignmentDetailIntent.CloseNoteEditor) },
+                    enabled = !state.savingNote
+                ) { Text("Cancelar") }
+                Text("Añadir nota", Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = FontWeight.SemiBold)
+                TextButton(
+                    { onIntent(AssignmentDetailIntent.AddNote) },
+                    enabled = state.note.trim().length >= 3 && !state.savingNote
+                ) {
+                    if (state.savingNote) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    else Text("Publicar")
+                }
+            }
+            Spacer(Modifier.height(18.dp))
+            Text("Nota / Incidencia", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = state.note,
+                onValueChange = { onIntent(AssignmentDetailIntent.ChangeNote(it)) },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 240.dp),
+                enabled = !state.savingNote,
+                minLines = 8,
+                shape = RoundedCornerShape(24.dp),
+                supportingText = { Text("${state.note.length} / 4000") }
+            )
+        }
+    }
+}
