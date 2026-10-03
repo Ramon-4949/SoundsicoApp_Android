@@ -46,4 +46,19 @@ class AssignmentMappingTest {
 
         assertEquals("vencida", assignment.status)
     }
+
+    @Test
+    fun employeeAssignmentWithoutPersonalMilestonesKeepsOverdueStatus() {
+        val assignment = AssignmentDto(
+            id = "assignment",
+            title = "Evento vencido",
+            status = "en_curso",
+            deadline = "2026-10-01T13:00:00-04:00",
+            milestones = listOf(
+                MilestoneDto(id = "milestone", order = 1, date = "2026-10-01T13:00:00-04:00")
+            )
+        ).toDomain("employee", false, now)
+
+        assertEquals("vencida", assignment.status)
+    }
 }

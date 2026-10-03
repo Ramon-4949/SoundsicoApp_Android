@@ -1,6 +1,7 @@
 package edu.ucne.soundsicoappandroid.domain.repository
 
 import edu.ucne.soundsicoappandroid.domain.model.*
+import kotlinx.coroutines.flow.Flow
 
 interface HomeRepository {
     suspend fun load(userId: String, administrator: Boolean): HomeContent
@@ -8,4 +9,5 @@ interface HomeRepository {
     suspend fun loadDashboard(): AdminDashboard
     suspend fun loadAdminAssignments(offset: Int, filter: String, search: String): AssignmentPage
     suspend fun reviewAccount(userId: String, approved: Boolean)
+    fun observe(userId: String, administrator: Boolean): Flow<HomeContent>
 }

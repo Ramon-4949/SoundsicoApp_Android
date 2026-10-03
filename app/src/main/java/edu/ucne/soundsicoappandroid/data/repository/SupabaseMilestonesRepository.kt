@@ -23,8 +23,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 class SupabaseMilestonesRepository(private val client: SupabaseClient) : MilestonesRepository {
-    override suspend fun getDetails(assignmentId: String, userId: String): AssignmentDetails = coroutineScope {
-        val assignment = async { SupabaseAssignmentsRepository(client).getAssignment(assignmentId, userId) }
+    override suspend fun getDetails(assignmentId: String, userId: String, administrator: Boolean): AssignmentDetails = coroutineScope {
+        val assignment = async { SupabaseAssignmentsRepository(client).getAssignment(assignmentId, userId.takeUnless { administrator }) }
         val checkIns = async { getCheckIns(assignmentId, userId) }
         val notes = async { getNotes(assignmentId) }
         val collaborators = async { getCollaborators(assignmentId) }
@@ -87,7 +87,7 @@ class SupabaseMilestonesRepository(private val client: SupabaseClient) : Milesto
         })
     }
 
-    override fun observeDetails(assignmentId: String, userId: String): Flow<AssignmentDetails> = flow {
+    override fun observeDetails(assignmentId: String, userId: String, administrator: Boolean): Flow<AssignmentDetails> = flow {
         val channel = client.channel("milestone-detail-$assignmentId-${System.nanoTime()}")
         val checkIns = channel.postgresChangeFlow<PostgresAction>("public") { table = "hitos_colaboradores" }
         val milestones = channel.postgresChangeFlow<PostgresAction>("public") {
@@ -95,7 +95,7 @@ class SupabaseMilestonesRepository(private val client: SupabaseClient) : Milesto
             filter("asignacion_id", FilterOperator.EQ, assignmentId)
         }
         try {
-            emit(getDetails(assignmentId, userId))
+            emit(getDetails(assignmentId, userId, administrator))
             channel.subscribe(true)
             val polling = flow {
                 while (true) {
@@ -104,7 +104,7 @@ class SupabaseMilestonesRepository(private val client: SupabaseClient) : Milesto
                 }
             }
             merge(checkIns, milestones).map { Unit }.mergeWith(polling).collect {
-                emit(getDetails(assignmentId, userId))
+                emit(getDetails(assignmentId, userId, administrator))
             }
         } finally {
             client.realtime.removeChannel(channel)

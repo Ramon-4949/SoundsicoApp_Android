@@ -19,7 +19,11 @@ data class Milestone(
     val completedAt: String? = null,
     val slaOpen: Boolean? = null,
     val collaborators: List<MilestoneCollaborator> = emptyList()
-)
+) {
+    val globallyCompleted: Boolean get() = if (collaborators.isEmpty()) completed else collaborators.all(MilestoneCollaborator::confirmed)
+    fun isAssignedTo(userId: String): Boolean = collaborators.any { it.userId == userId }
+    fun isConfirmedBy(userId: String): Boolean = collaborators.any { it.userId == userId && it.confirmed }
+}
 
 data class MilestoneDraft(
     val id: String,

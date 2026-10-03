@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import edu.ucne.soundsicoappandroid.domain.model.*
 import edu.ucne.soundsicoappandroid.presentation.profile.AdminPerformanceScreen
+import edu.ucne.soundsicoappandroid.presentation.profile.AdminAccountsScreen
 import edu.ucne.soundsicoappandroid.presentation.profile.ProfileScreen
 
 @Composable
@@ -72,11 +73,15 @@ fun HomeScreen(state: HomeState, onIntent: (HomeIntent) -> Unit, onCreateAssignm
                 HomeTab.Messages -> BulletinsContent(state, onIntent)
                 HomeTab.Calendar -> CalendarContent(state, onIntent)
                 HomeTab.Profile -> state.profile?.let { profile ->
-                    if (state.profilePage == ProfilePage.Performance && profile.isAdministrator) {
+                    if (state.profilePage == ProfilePage.Accounts && profile.isAdministrator) {
+                        AdminAccountsScreen(state, onIntent)
+                    } else if (state.profilePage == ProfilePage.Performance && profile.isAdministrator) {
                         AdminPerformanceScreen(
                             state.performance,
                             state.performanceLoading,
                             state.performanceFailure,
+                            month = state.performanceMonth,
+                            onMonth = { onIntent(HomeIntent.ChangePerformanceMonth(it)) },
                             onBack = { onIntent(HomeIntent.ClosePerformance) },
                             onRetry = { onIntent(HomeIntent.RetryPerformance) }
                         )

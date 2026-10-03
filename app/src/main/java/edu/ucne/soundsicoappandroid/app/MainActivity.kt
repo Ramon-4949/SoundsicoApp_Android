@@ -1,6 +1,17 @@
 package edu.ucne.soundsicoappandroid.app
 
 import android.os.Bundle
+import android.content.Intent
+import android.Manifest
+import android.os.Build
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import edu.ucne.soundsicoappandroid.presentation.notifications.*
+import edu.ucne.soundsicoappandroid.core.notifications.PushRegistration
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -27,12 +38,27 @@ import edu.ucne.soundsicoappandroid.presentation.login.*
 import edu.ucne.soundsicoappandroid.presentation.signup.*
 
 class MainActivity : ComponentActivity() {
+    private var pushRoute by mutableStateOf<Pair<String, String>?>(null)
+
+    private fun readRoute(intent: Intent) {
+        val id = intent.getStringExtra("notification_id") ?: return
+        val recipient = intent.getStringExtra("recipient_id") ?: return
+        if (runCatching { java.util.UUID.fromString(id); java.util.UUID.fromString(recipient) }.isSuccess) pushRoute = id to recipient
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        readRoute(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        readRoute(intent)
         enableEdgeToEdge()
         val container = (application as SoundiscoApplication).container
         setContent {
-            SoundiscoTheme { SoundiscoApp(container) }
+            SoundiscoTheme { SoundiscoApp(container, pushRoute) { pushRoute = null } }
         }
     }
 }
@@ -42,7 +68,7 @@ private inline fun <reified T : ViewModel> factory(crossinline create: () -> T) 
 }
 
 @Composable
-private fun SoundiscoApp(container: AppContainer) {
+private fun SoundiscoApp(container: AppContainer, pushRoute: Pair<String, String>?, onRouteHandled: () -> Unit) {
     val sessionModel: SessionViewModel = viewModel(factory = factory { SessionViewModel(container.observeSession) })
     val session by sessionModel.state.collectAsStateWithLifecycle()
     when (val current = session) {
@@ -56,6 +82,7 @@ private fun SoundiscoApp(container: AppContainer) {
             }
         }
         SessionState.SignedOut -> SessionScope("signed-out", sessionModel) {
+            LaunchedEffect(Unit) { container.pushRegistration.clear() }
             var registration by rememberSaveable { mutableStateOf(false) }
             if (registration) {
                 val model: SignUpViewModel = viewModel(factory = factory { SignUpViewModel(container.signUp) })
@@ -74,12 +101,49 @@ private fun SoundiscoApp(container: AppContainer) {
                     container.getProfile,
                     container.getHomeContent,
                     container.signOut,
-                    container.adminRepository,
+                    container.getEmployeePerformance,
                     container.deleteAccount,
-                    container.loginPreferences
+                    container.loginPreferences,
+                    container.manageAccounts
                 )
             })
             val state by model.state.collectAsStateWithLifecycle()
+            val notifications: NotificationsViewModel = viewModel(factory = factory {
+                NotificationsViewModel(current.user.id, container.notificationsRepository, container.assignmentsRepository, container.bulletinsRepository)
+            })
+            val notificationState by notifications.state.collectAsStateWithLifecycle()
+            val context = LocalContext.current
+            val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+                PushRegistration.enqueue(context)
+            }
+            LaunchedEffect(current.user.id) {
+                container.pushRegistration.connect(current.user.id)
+                if (container.pushRegistration.configured && Build.VERSION.SDK_INT >= 33 &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    val preferences = context.getSharedPreferences("soundisco_push", android.content.Context.MODE_PRIVATE)
+                    if (!preferences.getBoolean("permission_requested", false)) {
+                        preferences.edit().putBoolean("permission_requested", true).apply()
+                        permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+            }
+            LaunchedEffect(pushRoute, state.profile) {
+                pushRoute?.let { (id, recipient) ->
+                    if (recipient != current.user.id) onRouteHandled()
+                    else if (state.profile != null) {
+                        if (state.profile?.access == edu.ucne.soundsicoappandroid.domain.model.AccountAccess.Approved) {
+                            model.onIntent(HomeIntent.OpenNotifications)
+                            notifications.open(id, state.audience == HomeAudience.Administrator)
+                        } else model.onIntent(HomeIntent.Refresh)
+                        onRouteHandled()
+                    }
+                }
+            }
+            LaunchedEffect(notificationState.assignment, notificationState.bulletin) {
+                notificationState.assignment?.let { model.onIntent(HomeIntent.OpenAssignment(it)) }
+                notificationState.bulletin?.let { model.onIntent(HomeIntent.OpenBulletin(it)) }
+                notifications.clearDestination()
+            }
             var creating by rememberSaveable { mutableStateOf(false) }
             var creationSession by rememberSaveable { mutableIntStateOf(0) }
             var editingAssignment by remember { mutableStateOf<Assignment?>(null) }
@@ -114,6 +178,8 @@ private fun SoundiscoApp(container: AppContainer) {
                             assignment.id,
                             current.user.id,
                             administrator,
+                            container.observeAssignmentDetails,
+                            container.confirmMilestone,
                             container.milestonesRepository,
                             container.adminRepository
                         )
@@ -158,8 +224,29 @@ private fun SoundiscoApp(container: AppContainer) {
                         model.onIntent(HomeIntent.Refresh)
                     }
                 )
+            } else if (state.notificationsOpen) {
+                val pushStatus = when {
+                    !container.pushRegistration.configured -> "El historial está activo. Los avisos del dispositivo aún no están disponibles en esta versión."
+                    !NotificationManagerCompat.from(context).areNotificationsEnabled() -> "Los avisos del dispositivo están desactivados."
+                    else -> container.pushRegistration.failure
+                }
+                NotificationsScreen(
+                    notificationState,
+                    onBack = { model.onIntent(HomeIntent.CloseNotifications) },
+                    onRefresh = notifications::refresh,
+                    onReadAll = { notifications.markRead() },
+                    onOpen = { notifications.open(it, administrator) },
+                    pushStatus = pushStatus,
+                    onEnablePush = {
+                        if (container.pushRegistration.configured) PushRegistration.enqueue(context)
+                        val settings = if (Build.VERSION.SDK_INT >= 26) Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        else Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${context.packageName}"))
+                        context.startActivity(settings)
+                    }
+                )
             } else {
-                HomeScreen(state, model::onIntent) {
+                HomeScreen(state.copy(unreadNotifications = notificationState.unread), model::onIntent) {
                     creationSession++
                     editingAssignment = null
                     creating = true
