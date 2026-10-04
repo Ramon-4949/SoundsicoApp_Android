@@ -37,6 +37,7 @@ fun BulletinDetailScreen(
         if (state.deleted) onDeleted()
     }
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text(if (state.editing) "Editar mensaje" else "Detalle Mensaje", fontWeight = FontWeight.SemiBold) },
@@ -130,7 +131,9 @@ private fun DetailCard(content: @Composable ColumnScope.() -> Unit) {
         Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        tonalElevation = 1.dp
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 0.dp
     ) {
         Column(Modifier.padding(14.dp), content = content)
     }

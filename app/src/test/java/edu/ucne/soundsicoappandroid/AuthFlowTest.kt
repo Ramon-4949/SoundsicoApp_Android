@@ -109,6 +109,11 @@ class AuthFlowTest {
             failure?.let { throw it }
         }
         override suspend fun signUp(registration: Registration) { registered = registration }
+        override suspend fun requestPasswordRecovery(email: String) = Unit
+        override suspend fun verifyPasswordRecovery(email: String, code: String) = Unit
+        override suspend fun updateRecoveredPassword(password: String) = Unit
+        override suspend fun cancelPasswordRecovery() = Unit
+        override suspend fun changePassword(currentPassword: String, newPassword: String) = Unit
         override suspend fun signOut() { session.value = SessionState.SignedOut }
         override suspend fun deleteAccount() { session.value = SessionState.SignedOut }
         override suspend fun profile(userId: String) = EmployeeProfile(userId, "Ana", "ana", "8095551234", "Técnico de sonido", "empleado", access)

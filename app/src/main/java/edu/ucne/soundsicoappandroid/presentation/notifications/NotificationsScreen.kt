@@ -36,11 +36,13 @@ enum class NotificationFilter(val title: String) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NotificationsScreen(
-    state: NotificationsState, onBack: () -> Unit, onRefresh: () -> Unit,
-    onReadAll: () -> Unit, onOpen: (String) -> Unit,
-    pushStatus: String?, onEnablePush: () -> Unit
+    state: NotificationsState,
+    onBack: () -> Unit,
+    onReadAll: () -> Unit,
+    onOpen: (String) -> Unit
 ) {
     BackHandler(onBack = onBack)
     var filter by rememberSaveable { mutableStateOf(NotificationFilter.All) }
@@ -48,57 +50,69 @@ fun NotificationsScreen(
     val groups = state.items.filter(filter::matches).groupBy {
         runCatching { OffsetDateTime.parse(it.createdAt).atZoneSameInstant(ZoneId.systemDefault()).toLocalDate() }.getOrNull()
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { IconButton(onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Volver", tint = MaterialTheme.colorScheme.primary) } }
-        item {
-            Text("Notificaciones", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text("Centro de Operaciones y Control de notificaciones", style = MaterialTheme.typography.bodySmall)
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text("Notificaciones", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Volver", tint = MaterialTheme.colorScheme.primary) }
+                },
+                actions = {
+                    TextButton(onReadAll, enabled = state.unread > 0) { Text("Marcar leídas") }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+            )
         }
-        item {
-            Row {
-                TextButton(onRefresh) { Text("Actualizar") }
-                TextButton(onReadAll, enabled = state.unread > 0) { Text("Marcar todas como leídas") }
-            }
-            pushStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-            TextButton(onEnablePush) { Text("Configurar avisos del dispositivo") }
-        }
-        item {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(NotificationFilter.entries) { value ->
-                    FilterChip(filter == value, { filter = value },
-                        label = { Text("${value.title} (${state.items.count(value::matches)})") },
-                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary))
+    ) { padding ->
+        LazyColumn(
+            Modifier.padding(padding).fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item { Text("Centro de Operaciones y Control de notificaciones", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(NotificationFilter.entries) { value ->
+                        FilterChip(filter == value, { filter = value },
+                            label = { Text("${value.title} (${state.items.count(value::matches)})") },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary))
+                    }
                 }
             }
-        }
-        if (state.loading || state.opening) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-        state.failure?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
-        state.information?.let { item { Text(it) } }
-        if (groups.isEmpty() && !state.loading && state.failure == null) item { Text("No hay notificaciones para este filtro.") }
-        groups.forEach { (date, notifications) ->
-            item {
-                Text(when (date) {
-                    today -> "HOY"
-                    today.minusDays(1) -> "AYER"
-                    null -> "ANTERIORES"
-                    else -> date.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
-                }, style = MaterialTheme.typography.labelSmall)
-            }
-            items(notifications, key = { it.id }) { notification ->
-                Surface(shape = RoundedCornerShape(16.dp),
-                    border = if (!notification.read) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Outlined.Notifications, null, tint = MaterialTheme.colorScheme.primary)
-                            Text(notification.title ?: "SounDisco", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                            if (!notification.read) Badge { Text("Nueva") }
-                        }
-                        Text(notification.message.orEmpty())
-                        Text(runCatching { OffsetDateTime.parse(notification.createdAt).atZoneSameInstant(ZoneId.systemDefault())
-                            .format(DateTimeFormatter.ofPattern("HH:mm")) }.getOrDefault(""), style = MaterialTheme.typography.labelSmall)
-                        Button({ onOpen(notification.id) }, Modifier.fillMaxWidth(), enabled = !state.opening) {
-                            Text(if (notification.destinationType == "asignacion") "Ver asignación y checklist" else "Ver detalles")
+            if (state.loading || state.opening) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            state.failure?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+            state.information?.let { item { Text(it) } }
+            if (groups.isEmpty() && !state.loading && state.failure == null) item { Text("No hay notificaciones para este filtro.") }
+            groups.forEach { (date, notifications) ->
+                item {
+                    Text(when (date) {
+                        today -> "HOY"
+                        today.minusDays(1) -> "AYER"
+                        null -> "ANTERIORES"
+                        else -> date.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+                    }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                items(notifications, key = { it.id }) { notification ->
+                    Surface(
+                        onClick = { onOpen(notification.id) },
+                        enabled = !state.opening,
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        border = if (!notification.read) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Outlined.Notifications, null, tint = MaterialTheme.colorScheme.primary)
+                                Text(notification.title ?: "SounDisco", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                                if (!notification.read) Badge { Text("Nueva") }
+                            }
+                            Text(notification.message.orEmpty())
+                            Text(runCatching { OffsetDateTime.parse(notification.createdAt).atZoneSameInstant(ZoneId.systemDefault())
+                                .format(DateTimeFormatter.ofPattern("HH:mm")) }.getOrDefault(""), style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }

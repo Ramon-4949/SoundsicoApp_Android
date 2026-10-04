@@ -8,7 +8,6 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import edu.ucne.soundsicoappandroid.presentation.notifications.*
 import edu.ucne.soundsicoappandroid.core.notifications.PushRegistration
@@ -36,6 +35,8 @@ import edu.ucne.soundsicoappandroid.presentation.assignmentdetail.*
 import edu.ucne.soundsicoappandroid.presentation.bulletindetail.*
 import edu.ucne.soundsicoappandroid.presentation.login.*
 import edu.ucne.soundsicoappandroid.presentation.signup.*
+import edu.ucne.soundsicoappandroid.presentation.authentication.*
+import edu.ucne.soundsicoappandroid.presentation.profile.*
 
 class MainActivity : ComponentActivity() {
     private var pushRoute by mutableStateOf<Pair<String, String>?>(null)
@@ -84,14 +85,31 @@ private fun SoundiscoApp(container: AppContainer, pushRoute: Pair<String, String
         SessionState.SignedOut -> SessionScope("signed-out", sessionModel) {
             LaunchedEffect(Unit) { container.pushRegistration.clear() }
             var registration by rememberSaveable { mutableStateOf(false) }
-            if (registration) {
+            var recovery by rememberSaveable { mutableStateOf(false) }
+            var recoverySession by rememberSaveable { mutableIntStateOf(0) }
+            if (recovery) {
+                val recoveryModel: PasswordRecoveryViewModel = viewModel(key = "password-recovery-$recoverySession", factory = factory {
+                    PasswordRecoveryViewModel(
+                        container.loginPreferences.rememberedEmail(),
+                        container.requestPasswordRecovery,
+                        container.verifyPasswordRecovery,
+                        container.updateRecoveredPassword,
+                        container.cancelPasswordRecovery
+                    )
+                })
+                val recoveryState by recoveryModel.state.collectAsStateWithLifecycle()
+                PasswordRecoveryScreen(recoveryState, recoveryModel::onIntent) { recovery = false }
+            } else if (registration) {
                 val model: SignUpViewModel = viewModel(factory = factory { SignUpViewModel(container.signUp) })
                 val state by model.state.collectAsStateWithLifecycle()
                 SignUpScreen(state, model::onIntent) { registration = false }
             } else {
                 val model: LoginViewModel = viewModel(factory = factory { LoginViewModel(container.login, container.loginPreferences) })
                 val state by model.state.collectAsStateWithLifecycle()
-                LoginScreen(state, model::onIntent) { registration = true }
+                LoginScreen(state, model::onIntent, { registration = true }) {
+                    recoverySession++
+                    recovery = true
+                }
             }
         }
         is SessionState.SignedIn -> SessionScope(current.user.id, sessionModel) {
@@ -147,8 +165,52 @@ private fun SoundiscoApp(container: AppContainer, pushRoute: Pair<String, String
             var creating by rememberSaveable { mutableStateOf(false) }
             var creationSession by rememberSaveable { mutableIntStateOf(0) }
             var editingAssignment by remember { mutableStateOf<Assignment?>(null) }
+            var editingProfile by rememberSaveable { mutableStateOf(false) }
+            var editProfileSession by rememberSaveable { mutableIntStateOf(0) }
+            var accountOpen by rememberSaveable { mutableStateOf(false) }
+            var changingPassword by rememberSaveable { mutableStateOf(false) }
+            var passwordSession by rememberSaveable { mutableIntStateOf(0) }
             val administrator = state.audience == HomeAudience.Administrator
-            if (creating || editingAssignment != null) {
+            if (changingPassword) {
+                val passwordModel: ChangePasswordViewModel = viewModel(
+                    key = "change-password-${current.user.id}-$passwordSession",
+                    factory = factory { ChangePasswordViewModel(container.changePassword) }
+                )
+                val passwordState by passwordModel.state.collectAsStateWithLifecycle()
+                ChangePasswordScreen(
+                    passwordState,
+                    passwordModel::onIntent,
+                    onBack = { changingPassword = false },
+                    onSaved = { changingPassword = false }
+                )
+            } else if (editingProfile) {
+                val editProfileModel: EditProfileViewModel = viewModel(
+                    key = "edit-profile-${current.user.id}-$editProfileSession",
+                    factory = factory { EditProfileViewModel(current.user.id, container.profileRepository) }
+                )
+                val editProfileState by editProfileModel.state.collectAsStateWithLifecycle()
+                EditProfileScreen(
+                    editProfileState,
+                    editProfileModel::onIntent,
+                    onBack = { editingProfile = false },
+                    onSaved = {
+                        editingProfile = false
+                        model.onIntent(HomeIntent.Refresh)
+                    }
+                )
+            } else if (accountOpen) {
+                AccountScreen(
+                    onBack = { accountOpen = false },
+                    onChangePassword = {
+                        passwordSession++
+                        changingPassword = true
+                    },
+                    onEditProfile = {
+                        editProfileSession++
+                        editingProfile = true
+                    }
+                )
+            } else if (creating || editingAssignment != null) {
                 val assignment = editingAssignment
                 val creationModel: AdminCreationViewModel = viewModel(
                     key = "admin-creation-$creationSession",
@@ -225,32 +287,23 @@ private fun SoundiscoApp(container: AppContainer, pushRoute: Pair<String, String
                     }
                 )
             } else if (state.notificationsOpen) {
-                val pushStatus = when {
-                    !container.pushRegistration.configured -> "El historial está activo. Los avisos del dispositivo aún no están disponibles en esta versión."
-                    !NotificationManagerCompat.from(context).areNotificationsEnabled() -> "Los avisos del dispositivo están desactivados."
-                    else -> container.pushRegistration.failure
-                }
                 NotificationsScreen(
                     notificationState,
                     onBack = { model.onIntent(HomeIntent.CloseNotifications) },
-                    onRefresh = notifications::refresh,
                     onReadAll = { notifications.markRead() },
-                    onOpen = { notifications.open(it, administrator) },
-                    pushStatus = pushStatus,
-                    onEnablePush = {
-                        if (container.pushRegistration.configured) PushRegistration.enqueue(context)
-                        val settings = if (Build.VERSION.SDK_INT >= 26) Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                            .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
-                        else Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${context.packageName}"))
-                        context.startActivity(settings)
-                    }
+                    onOpen = { notifications.open(it, administrator) }
                 )
             } else {
-                HomeScreen(state.copy(unreadNotifications = notificationState.unread), model::onIntent) {
-                    creationSession++
-                    editingAssignment = null
-                    creating = true
-                }
+                HomeScreen(
+                    state.copy(unreadNotifications = notificationState.unread),
+                    model::onIntent,
+                    onCreateAssignment = {
+                        creationSession++
+                        editingAssignment = null
+                        creating = true
+                    },
+                    onOpenAccount = { accountOpen = true }
+                )
             }
         }
     }

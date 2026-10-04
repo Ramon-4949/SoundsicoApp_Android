@@ -192,7 +192,7 @@ class HomeViewModelTest {
     }
 
     @Test fun complianceIncludesUnconfirmedAndEmptyPeriodHasNoPercentage() {
-        val value = EmployeePerformance("id", "Ana", "Técnico", 1, 2, 1, 2, null, emptyList(), 0, 0, 0, 0)
+        val value = EmployeePerformance("id", "Ana", "TÃ©cnico", 1, 2, 1, 2, null, emptyList(), 0, 0, 0, 0)
         assertEquals(0.5, requireNotNull(value.compliance), 0.0001)
         assertNull(value.copy(early = 0, onTime = 0, late = 0, unconfirmed = 0).compliance)
     }
@@ -203,6 +203,11 @@ class HomeViewModelTest {
         override val session = MutableStateFlow<SessionState>(SessionState.SignedOut)
         override suspend fun login(email: String, password: String) { session.value = SessionState.SignedIn(AuthUser("user", email, "Ana")) }
         override suspend fun signUp(registration: Registration) { login(registration.email, registration.password) }
+        override suspend fun requestPasswordRecovery(email: String) = Unit
+        override suspend fun verifyPasswordRecovery(email: String, code: String) = Unit
+        override suspend fun updateRecoveredPassword(password: String) = Unit
+        override suspend fun cancelPasswordRecovery() = Unit
+        override suspend fun changePassword(currentPassword: String, newPassword: String) = Unit
         override suspend fun signOut() { session.value = SessionState.SignedOut }
         override suspend fun deleteAccount() { session.value = SessionState.SignedOut }
         override suspend fun profile(userId: String): EmployeeProfile {
@@ -250,7 +255,7 @@ class HomeViewModelTest {
         var performanceLoads = 0
         var accountLoads = 0
         var lastMonth = ""
-        var account = ManagedAccount("pending", "Ana", "ana@empresa.com", null, "Técnico", AccountAccessState.Pending, "2026-10-03T10:00:00Z")
+        var account = ManagedAccount("pending", "Ana", "ana@empresa.com", null, "TÃ©cnico", AccountAccessState.Pending, "2026-10-03T10:00:00Z")
         override suspend fun getDashboardMetrics() = DashboardMetrics(0, 0, 0, 0.0, emptyList())
         override suspend fun getAssignments(offset: Int, limit: Int, filter: AdminAssignmentFilter, search: String) =
             AdminAssignmentPage(emptyList(), false, null)

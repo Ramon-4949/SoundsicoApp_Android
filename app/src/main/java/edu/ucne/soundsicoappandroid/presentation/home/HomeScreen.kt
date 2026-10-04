@@ -23,7 +23,7 @@ import edu.ucne.soundsicoappandroid.presentation.profile.AdminAccountsScreen
 import edu.ucne.soundsicoappandroid.presentation.profile.ProfileScreen
 
 @Composable
-fun HomeScreen(state: HomeState, onIntent: (HomeIntent) -> Unit, onCreateAssignment: () -> Unit = {}) {
+fun HomeScreen(state: HomeState, onIntent: (HomeIntent) -> Unit, onCreateAssignment: () -> Unit = {}, onOpenAccount: () -> Unit = {}) {
     val approved = state.profile?.access == AccountAccess.Approved
     Scaffold(
         containerColor = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.background else Color(0xFFF9F9F9),
@@ -90,6 +90,9 @@ fun HomeScreen(state: HomeState, onIntent: (HomeIntent) -> Unit, onCreateAssignm
                             profile,
                             state.user.email,
                             state.signingOut,
+                            state.deletingAccount,
+                            onOpenAccount = onOpenAccount,
+                            onDeleteAccount = { onIntent(HomeIntent.RequestDeleteAccount) },
                             onOpenDashboard = { onIntent(HomeIntent.OpenDashboard) },
                             onOpenPerformance = { onIntent(HomeIntent.OpenPerformance) },
                             onSignOut = { onIntent(HomeIntent.SignOut) }
@@ -100,6 +103,13 @@ fun HomeScreen(state: HomeState, onIntent: (HomeIntent) -> Unit, onCreateAssignm
         }
     }
     PendingApprovalsDialog(state, onIntent)
+    if (state.deleteAccountConfirmation) AlertDialog(
+        onDismissRequest = { onIntent(HomeIntent.CancelDeleteAccount) },
+        title = { Text("¿Eliminar tu cuenta?") },
+        text = { Text("Esta acción elimina definitivamente tu cuenta y no se puede deshacer.") },
+        confirmButton = { TextButton({ onIntent(HomeIntent.ConfirmDeleteAccount) }) { Text("Eliminar cuenta") } },
+        dismissButton = { TextButton({ onIntent(HomeIntent.CancelDeleteAccount) }) { Text("Cancelar") } }
+    )
 }
 
 @Composable

@@ -38,9 +38,6 @@ internal fun HomeHeader(state: HomeState, onIntent: (HomeIntent) -> Unit) {
                 Text("Hola, ${state.profile?.username?.takeIf { it.isNotBlank() } ?: state.user.displayName}",
                     fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
             }
-            IconButton({ onIntent(HomeIntent.Refresh) }, enabled = !state.loading) {
-                Icon(Icons.Outlined.Refresh, "Actualizar", Modifier.size(21.dp))
-            }
             IconButton({ onIntent(HomeIntent.OpenNotifications) }) {
                 BadgedBox(badge = { if (state.unreadNotifications > 0) Badge { Text(state.unreadNotifications.toString()) } }) {
                     Icon(Icons.Outlined.NotificationsNone, "Notificaciones", Modifier.size(21.dp))

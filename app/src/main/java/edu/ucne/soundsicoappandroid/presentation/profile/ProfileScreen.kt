@@ -31,6 +31,9 @@ fun ProfileScreen(
     profile: EmployeeProfile,
     email: String,
     signingOut: Boolean,
+    deletingAccount: Boolean,
+    onOpenAccount: () -> Unit,
+    onDeleteAccount: () -> Unit,
     onOpenDashboard: () -> Unit,
     onOpenPerformance: () -> Unit,
     onSignOut: () -> Unit
@@ -79,20 +82,26 @@ fun ProfileScreen(
             shape = RoundedCornerShape(12.dp),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
-            ProfileRow(
-                Icons.Outlined.Language,
-                "Idioma de interfaz",
-                languageLabel(),
-                trailing = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.size(18.dp)) },
-                onClick = {
-                    val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        Intent(Settings.ACTION_APP_LOCALE_SETTINGS, Uri.parse("package:${context.packageName}"))
-                    } else {
-                        Intent(Settings.ACTION_LOCALE_SETTINGS)
+            Column {
+                ProfileActionRow(Icons.Outlined.ManageAccounts, "Cuenta", onOpenAccount)
+                HorizontalDivider(Modifier.padding(start = 50.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                ProfileDeleteRow(deletingAccount, onDeleteAccount)
+                HorizontalDivider(Modifier.padding(start = 50.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                ProfileRow(
+                    Icons.Outlined.Language,
+                    "Idioma de interfaz",
+                    languageLabel(),
+                    trailing = { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.size(18.dp)) },
+                    onClick = {
+                        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            Intent(Settings.ACTION_APP_LOCALE_SETTINGS, Uri.parse("package:${context.packageName}"))
+                        } else {
+                            Intent(Settings.ACTION_LOCALE_SETTINGS)
+                        }
+                        context.startActivity(intent)
                     }
-                    context.startActivity(intent)
-                }
-            )
+                )
+            }
         }
         Spacer(Modifier.height(28.dp))
         OutlinedButton(
@@ -155,6 +164,23 @@ private fun ProfileActionRow(icon: ImageVector, title: String, onClick: () -> Un
         Spacer(Modifier.width(10.dp))
         Text(title, Modifier.weight(1f), fontSize = 14.sp, fontWeight = FontWeight.Medium)
         Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.size(18.dp))
+    }
+}
+
+@Composable
+private fun ProfileDeleteRow(busy: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 58.dp).clickable(enabled = !busy, onClick = onClick).padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ProfileIcon(Icons.Outlined.DeleteForever)
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Eliminar cuenta", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text("Borrar tu cuenta definitivamente", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+        else Icon(Icons.Outlined.Delete, null, Modifier.size(19.dp), tint = MaterialTheme.colorScheme.primary)
     }
 }
 
