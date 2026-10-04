@@ -16,7 +16,16 @@ class AuthenticationScreensTest {
 
     @Test fun loginExposesFieldsAndDispatchesSubmit() {
         val intents = mutableListOf<LoginIntent>()
-        compose.setContent { SoundiscoTheme { LoginScreen(LoginState(), intents::add, {}) } }
+        compose.setContent {
+            SoundiscoTheme {
+                LoginScreen(
+                    state = LoginState(),
+                    onIntent = intents::add,
+                    onSignUp = {},
+                    onRecoverPassword = {}
+                )
+            }
+        }
         compose.onNodeWithContentDescription("Correo electrónico").performTextInput("ana@empresa.com")
         compose.onNodeWithContentDescription("Contraseña").performTextInput("Segura!928")
         compose.onNodeWithText("Iniciar sesión").performScrollTo().performClick()
