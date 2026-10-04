@@ -7,13 +7,11 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import edu.ucne.soundsicoappandroid.core.network.SupabaseProvider
 import io.github.jan.supabase.auth.auth
-import io.github.jan.supabase.postgrest.postgrest
+import edu.ucne.soundsicoappandroid.data.repository.SupabasePushDeviceRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import java.util.UUID
 
 class PushRegistration(private val context: Context) {
@@ -21,8 +19,10 @@ class PushRegistration(private val context: Context) {
     val configured: Boolean get() = FirebaseApp.getApps(context).isNotEmpty()
     val failure: String? get() = preferences.getString("failure", null)
 
-    fun installation(): String = preferences.getString("installation", null) ?: UUID.randomUUID().toString().also {
-        preferences.edit().putString("installation", it).commit()
+    fun installation(): String = synchronized(installationLock) {
+        preferences.getString("installation", null) ?: UUID.randomUUID().toString().also {
+            check(preferences.edit().putString("installation", it).commit())
+        }
     }
 
     fun connect(userId: String) {
@@ -32,11 +32,7 @@ class PushRegistration(private val context: Context) {
 
     suspend fun disconnect() = registrationLock.withLock {
         WorkManager.getInstance(context).cancelUniqueWork("push-registration")
-        if (preferences.getBoolean("registered", false)) {
-            SupabaseProvider.client.postgrest.rpc("unregister_android_push_device", buildJsonObject {
-                put("p_installation", installation())
-            })
-        }
+        SupabasePushDeviceRepository(SupabaseProvider.client).unregister(installation())
         clear()
     }
 
@@ -47,6 +43,7 @@ class PushRegistration(private val context: Context) {
 
     companion object {
         val registrationLock = Mutex()
+        private val installationLock = Any()
         fun enqueue(context: Context) {
             val request = OneTimeWorkRequestBuilder<PushRegistrationWorker>()
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
@@ -67,10 +64,7 @@ class PushRegistrationWorker(context: Context, parameters: WorkerParameters) : C
             if (FirebaseApp.getApps(applicationContext).isEmpty()) return@withLock Result.success()
             val token = FirebaseMessaging.getInstance().token.await()
             if (preferences.getString("owner", null) != userId || client.auth.currentUserOrNull()?.id != userId) return@withLock Result.success()
-            client.postgrest.rpc("register_android_push_device", buildJsonObject {
-                put("p_installation", PushRegistration(applicationContext).installation())
-                put("p_token", token)
-            })
+            SupabasePushDeviceRepository(client).register(PushRegistration(applicationContext).installation(), token)
             preferences.edit().putBoolean("registered", true).remove("failure").commit()
             Result.success()
         } catch (error: CancellationException) {

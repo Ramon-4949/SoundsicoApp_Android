@@ -1,7 +1,6 @@
 package edu.ucne.soundsicoappandroid.core.notifications
 
 import android.Manifest
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
@@ -28,9 +27,7 @@ class SoundiscoMessagingService : FirebaseMessagingService() {
         if (owner != recipient) return
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val manager = getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Operaciones SounDisco", NotificationManager.IMPORTANCE_HIGH)
-        )
+        NotificationChannels.create(this)
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             data = android.net.Uri.parse("soundisco://notification/$id")
@@ -44,6 +41,7 @@ class SoundiscoMessagingService : FirebaseMessagingService() {
             .setContentText(message.data["body"])
             .setStyle(NotificationCompat.BigTextStyle().bigText(message.data["body"]))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_VIBRATE)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setAutoCancel(true)
             .setContentIntent(pending)
@@ -51,5 +49,5 @@ class SoundiscoMessagingService : FirebaseMessagingService() {
         manager.notify(id, 0, notification)
     }
 
-    companion object { const val CHANNEL = "soundisco_operations" }
+    companion object { const val CHANNEL = NotificationChannels.OPERATIONS }
 }
