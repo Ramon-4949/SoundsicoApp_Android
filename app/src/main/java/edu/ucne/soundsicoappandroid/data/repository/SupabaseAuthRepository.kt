@@ -39,6 +39,7 @@ class SupabaseAuthRepository(private val client: SupabaseClient, private val pus
             this.email = email
             this.password = password
         }
+        client.auth.currentUserOrNull()?.id?.let(push::connect)
     }
 
     override suspend fun signUp(registration: Registration) {
@@ -55,6 +56,7 @@ class SupabaseAuthRepository(private val client: SupabaseClient, private val pus
         check(client.auth.currentSessionOrNull() != null) {
             "El servidor no entregó una sesión. Revisa tu correo y la configuración de confirmación de cuentas."
         }
+        client.auth.currentUserOrNull()?.id?.let(push::connect)
     }
 
     override suspend fun signOut() {
