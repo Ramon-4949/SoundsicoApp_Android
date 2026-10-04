@@ -16,7 +16,7 @@ import androidx.compose.ui.unit.dp
 import edu.ucne.soundsicoappandroid.core.designsystem.*
 
 @Composable
-fun LoginScreen(state: LoginState, onIntent: (LoginIntent) -> Unit, onSignUp: () -> Unit) {
+fun LoginScreen(state: LoginState, onIntent: (LoginIntent) -> Unit, onSignUp: () -> Unit, onRecoverPassword: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
         Column(
             Modifier.safeDrawingPadding().imePadding().verticalScroll(rememberScrollState())
@@ -44,7 +44,10 @@ fun LoginScreen(state: LoginState, onIntent: (LoginIntent) -> Unit, onSignUp: ()
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Switch(state.rememberEmail, { onIntent(LoginIntent.RememberChanged(it)) }, enabled = !state.busy)
                             Spacer(Modifier.width(10.dp))
-                            Text("Recordarme", style = MaterialTheme.typography.bodyMedium)
+                            Text("Recordarme", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                            TextButton(onRecoverPassword, enabled = !state.busy, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                                Text("¿Olvidaste tu contraseña?", style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.End)
+                            }
                         }
                     }
                 }

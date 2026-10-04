@@ -78,7 +78,7 @@ fun AssignmentDetailScreen(
             )
         },
         bottomBar = {
-            if (state.details != null) Surface(shadowElevation = 8.dp) {
+            if (state.details != null) Surface(Modifier.navigationBarsPadding(), shadowElevation = 8.dp) {
                 Button(
                     { onIntent(AssignmentDetailIntent.OpenNoteEditor) },
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).heightIn(min = 50.dp)

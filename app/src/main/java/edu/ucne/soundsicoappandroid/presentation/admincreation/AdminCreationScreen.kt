@@ -3,6 +3,8 @@ package edu.ucne.soundsicoappandroid.presentation.admincreation
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -23,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import edu.ucne.soundsicoappandroid.domain.model.AssignmentPriority
@@ -86,7 +89,7 @@ fun AdminCreationScreen(
 @Composable
 private fun CreationTypeContent(state: AdminCreationState, onIntent: (AdminCreationIntent) -> Unit) {
     Column(
-        Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("¿Qué tipo de asignación\ndeseas crear?", fontSize = 29.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold)
@@ -116,7 +119,7 @@ private fun CreationTypeContent(state: AdminCreationState, onIntent: (AdminCreat
             icon = Icons.Outlined.Forum,
             selected = state.selectedType == CreationType.Message
         ) { onIntent(AdminCreationIntent.SelectType(CreationType.Message)) }
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(8.dp))
         Button(
             { onIntent(AdminCreationIntent.Continue) },
             enabled = state.selectedType != null,
@@ -127,6 +130,7 @@ private fun CreationTypeContent(state: AdminCreationState, onIntent: (AdminCreat
             Spacer(Modifier.width(8.dp))
             Icon(Icons.AutoMirrored.Outlined.ArrowForward, null, Modifier.size(18.dp))
         }
+        Spacer(Modifier.navigationBarsPadding().height(8.dp))
     }
 }
 
@@ -514,14 +518,26 @@ private fun ResponsibleEmployeeCard(employee: Employee, selected: Boolean, onCli
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             ResponsibleAvatar(employee, Modifier.size(46.dp))
             Spacer(Modifier.width(11.dp))
-            Column(Modifier.weight(1f)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    employee.name.ifBlank { "Empleado sin nombre" },
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Text(employee.name.ifBlank { "Empleado sin nombre" }, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        employee.position ?: employee.role,
+                        Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     Surface(color = Color(0xFFD6F7EA), shape = RoundedCornerShape(4.dp)) {
                         Text("Disponible", Modifier.padding(horizontal = 5.dp, vertical = 2.dp), color = Color(0xFF007A52), fontSize = 9.sp)
                     }
                 }
-                Text(employee.position ?: employee.role, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (selected) Icon(Icons.Outlined.CheckCircle, "Seleccionado", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(25.dp))
             else Icon(Icons.Outlined.RadioButtonUnchecked, "No seleccionado", tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(25.dp))
