@@ -32,3 +32,14 @@ class ConfirmMilestoneUseCase(private val repository: MilestonesRepository) {
         return repository.getDetails(details.assignment.id, userId, false)
     }
 }
+
+class UndoMilestoneConfirmationUseCase(private val repository: MilestonesRepository) {
+    suspend operator fun invoke(details: AssignmentDetails, milestone: Milestone, userId: String): AssignmentDetails {
+        require(milestone.isAssignedTo(userId)) { "No estás asignado a este hito." }
+        require(milestone.isConfirmedBy(userId) || details.checkIns.any {
+            it.milestoneId == milestone.id && it.userId == userId
+        }) { "Este hito todavía no ha sido confirmado." }
+        repository.undoCheckIn(milestone.id)
+        return repository.getDetails(details.assignment.id, userId, false)
+    }
+}

@@ -242,6 +242,7 @@ private fun SoundiscoApp(container: AppContainer, pushRoute: Pair<String, String
                             administrator,
                             container.observeAssignmentDetails,
                             container.confirmMilestone,
+                            container.undoMilestoneConfirmation,
                             container.milestonesRepository,
                             container.adminRepository
                         )
@@ -268,6 +269,9 @@ private fun SoundiscoApp(container: AppContainer, pushRoute: Pair<String, String
                 )
             } else if (state.bulletin != null) {
                 val bulletin = requireNotNull(state.bulletin)
+                LaunchedEffect(bulletin.id, notificationState.unreadBulletinIds) {
+                    notifications.markBulletinRead(bulletin.id)
+                }
                 val detailModel: BulletinDetailViewModel = viewModel(
                     key = "bulletin-detail-${bulletin.id}",
                     factory = factory { BulletinDetailViewModel(bulletin, administrator, container.bulletinsRepository) }
@@ -295,7 +299,11 @@ private fun SoundiscoApp(container: AppContainer, pushRoute: Pair<String, String
                 )
             } else {
                 HomeScreen(
-                    state.copy(unreadNotifications = notificationState.unread),
+                    state.copy(
+                        unreadNotifications = notificationState.unread,
+                        unreadMessages = notificationState.unreadMessages,
+                        unreadBulletinIds = notificationState.unreadBulletinIds
+                    ),
                     model::onIntent,
                     onCreateAssignment = {
                         creationSession++

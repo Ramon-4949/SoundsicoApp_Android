@@ -18,6 +18,14 @@ data class NotificationsState(
     val information: String? = null
 ) {
     val unread: Int get() = items.count { !it.read }
+    val unreadBulletinIds: Set<String> get() {
+        val deleted = items.filter { it.destinationType == "comunicado" && it.type == "comunicado_eliminado" }
+            .mapNotNull { it.destinationId }.toSet()
+        return items.filter {
+            !it.read && it.destinationType == "comunicado" && it.type != "comunicado_eliminado"
+        }.mapNotNull { it.destinationId }.toSet() - deleted
+    }
+    val unreadMessages: Int get() = unreadBulletinIds.size
 }
 
 class NotificationsViewModel(
@@ -62,6 +70,12 @@ class NotificationsViewModel(
                 mutableState.update { it.copy(failure = error.userMessage()) }
             }
         }
+    }
+
+    fun markBulletinRead(bulletinId: String) {
+        state.value.items.filter {
+            !it.read && it.destinationType == "comunicado" && it.destinationId == bulletinId
+        }.forEach { markRead(it.id) }
     }
 
     fun open(id: String, administrator: Boolean) {

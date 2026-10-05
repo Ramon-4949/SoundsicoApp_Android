@@ -8,6 +8,7 @@ import edu.ucne.soundsicoappandroid.domain.repository.AdminRepository
 import edu.ucne.soundsicoappandroid.domain.repository.MilestonesRepository
 import edu.ucne.soundsicoappandroid.domain.usecase.ConfirmMilestoneUseCase
 import edu.ucne.soundsicoappandroid.domain.usecase.ObserveAssignmentDetailsUseCase
+import edu.ucne.soundsicoappandroid.domain.usecase.UndoMilestoneConfirmationUseCase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +25,7 @@ class AssignmentDetailViewModel(
     private val administrator: Boolean,
     private val observeDetails: ObserveAssignmentDetailsUseCase,
     private val confirmMilestone: ConfirmMilestoneUseCase,
+    private val undoMilestoneConfirmation: UndoMilestoneConfirmationUseCase,
     private val milestonesRepository: MilestonesRepository,
     private val adminRepository: AdminRepository
 ) : ViewModel() {
@@ -39,6 +41,7 @@ class AssignmentDetailViewModel(
         when (intent) {
             AssignmentDetailIntent.Refresh -> observe()
             is AssignmentDetailIntent.CheckIn -> checkIn(intent.milestone)
+            is AssignmentDetailIntent.UndoCheckIn -> undoCheckIn(intent.milestone)
             is AssignmentDetailIntent.ChangeNote -> mutableState.update { it.copy(note = intent.value.take(4000)) }
             AssignmentDetailIntent.OpenNoteEditor -> mutableState.update { it.copy(noteEditorOpen = true) }
             AssignmentDetailIntent.CloseNoteEditor -> if (!state.value.savingNote)
@@ -73,6 +76,24 @@ class AssignmentDetailViewModel(
             try {
                 val current = state.value.details ?: error("No se cargó la asignación.")
                 val details = confirmMilestone(current, milestone, userId)
+                mutableState.update { it.copy(details = details) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                mutableState.update { it.copy(error = error.userMessage()) }
+            } finally {
+                mutableState.update { it.copy(checkingMilestoneId = null) }
+            }
+        }
+    }
+
+    private fun undoCheckIn(milestone: Milestone) {
+        if (administrator || state.value.checkingMilestoneId != null) return
+        mutableState.update { it.copy(checkingMilestoneId = milestone.id, error = null) }
+        viewModelScope.launch {
+            try {
+                val current = state.value.details ?: error("No se cargó la asignación.")
+                val details = undoMilestoneConfirmation(current, milestone, userId)
                 mutableState.update { it.copy(details = details) }
             } catch (error: CancellationException) {
                 throw error

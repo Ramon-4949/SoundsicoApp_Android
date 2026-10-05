@@ -38,12 +38,22 @@ fun HomeScreen(state: HomeState, onIntent: (HomeIntent) -> Unit, onCreateAssignm
                             indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
                         ),
                         onClick = { onIntent(HomeIntent.SelectTab(tab)) },
-                        icon = { Icon(when (tab) {
-                            HomeTab.Start -> Icons.Outlined.Home
-                            HomeTab.Messages -> Icons.AutoMirrored.Outlined.Message
-                            HomeTab.Calendar -> Icons.Outlined.CalendarMonth
-                            HomeTab.Profile -> Icons.Outlined.Person
-                        }, tab.title) },
+                        icon = {
+                            BadgedBox(badge = {
+                                if (tab == HomeTab.Messages && state.unreadMessages > 0) {
+                                    Badge(containerColor = MaterialTheme.colorScheme.error) {
+                                        Text(state.unreadMessages.coerceAtMost(99).toString())
+                                    }
+                                }
+                            }) {
+                                Icon(when (tab) {
+                                    HomeTab.Start -> Icons.Outlined.Home
+                                    HomeTab.Messages -> Icons.AutoMirrored.Outlined.Message
+                                    HomeTab.Calendar -> Icons.Outlined.CalendarMonth
+                                    HomeTab.Profile -> Icons.Outlined.Person
+                                }, tab.title)
+                            }
+                        },
                         label = { Text(tab.title) }
                     )
                 }
@@ -143,7 +153,14 @@ private fun BulletinsContent(state: HomeState, onIntent: (HomeIntent) -> Unit) {
         }
         items(state.content.bulletins, key = { it.id }) { bulletin ->
             ListItem(
-                headlineContent = { Text(bulletin.subject, fontWeight = FontWeight.SemiBold) },
+                headlineContent = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(bulletin.subject, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                        if (bulletin.id in state.unreadBulletinIds) {
+                            Badge(containerColor = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                },
                 supportingContent = { Text(bulletin.message, maxLines = 2) },
                 modifier = Modifier.clickable { onIntent(HomeIntent.OpenBulletin(bulletin)) }
             )

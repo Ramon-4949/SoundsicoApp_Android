@@ -20,6 +20,8 @@ data class HomeState(
     val tab: HomeTab = HomeTab.Start,
     val notificationsOpen: Boolean = false,
     val unreadNotifications: Int = 0,
+    val unreadMessages: Int = 0,
+    val unreadBulletinIds: Set<String> = emptySet(),
     val loading: Boolean = true,
     val signingOut: Boolean = false,
     val failure: String? = null,
