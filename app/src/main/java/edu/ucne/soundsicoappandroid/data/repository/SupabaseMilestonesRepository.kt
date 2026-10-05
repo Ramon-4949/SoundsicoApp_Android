@@ -79,6 +79,12 @@ class SupabaseMilestonesRepository(private val client: SupabaseClient) : Milesto
         }.decodeSingle<MilestoneCheckInDto>().toDomain()
     }
 
+    override suspend fun undoCheckIn(milestoneId: String) {
+        client.postgrest.rpc("undo_milestone_confirmation", buildJsonObject {
+            put("p_hito_id", milestoneId)
+        })
+    }
+
     override suspend fun addNote(id: String, assignmentId: String, content: String) {
         client.postgrest.rpc("add_assignment_note", buildJsonObject {
             put("p_id", id)

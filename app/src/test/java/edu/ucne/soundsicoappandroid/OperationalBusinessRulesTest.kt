@@ -10,6 +10,7 @@ import edu.ucne.soundsicoappandroid.domain.model.MilestoneCollaborator
 import edu.ucne.soundsicoappandroid.domain.repository.MilestonesRepository
 import edu.ucne.soundsicoappandroid.domain.usecase.ConfirmMilestoneUseCase
 import edu.ucne.soundsicoappandroid.domain.usecase.ObserveAssignmentDetailsUseCase
+import edu.ucne.soundsicoappandroid.domain.usecase.UndoMilestoneConfirmationUseCase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -59,6 +60,21 @@ class OperationalBusinessRulesTest {
         assertFalse(result.assignment.milestones.single().globallyCompleted)
     }
 
+    @Test
+    fun employeeCanUndoAndConfirmAnOverdueMilestoneAgain() = runTest {
+        val repository = RuleMilestonesRepository(details(milestone(false, false)))
+        val confirm = ConfirmMilestoneUseCase(repository)
+        val undo = UndoMilestoneConfirmationUseCase(repository)
+        val milestone = repository.current.value.assignment.milestones.single()
+
+        val confirmed = confirm(repository.current.value, milestone, "employee-a")
+        val pending = undo(confirmed, confirmed.assignment.milestones.single(), "employee-a")
+
+        assertFalse(pending.assignment.milestones.single().isConfirmedBy("employee-a"))
+        val confirmedAgain = confirm(pending, pending.assignment.milestones.single(), "employee-a")
+        assertTrue(confirmedAgain.assignment.milestones.single().isConfirmedBy("employee-a"))
+    }
+
     private fun milestone(firstConfirmed: Boolean, secondConfirmed: Boolean) = Milestone(
         id = "milestone",
         assignmentId = "assignment",
@@ -97,6 +113,19 @@ class OperationalBusinessRulesTest {
                 checkIns = current.value.checkIns + checkIn
             )
             return checkIn
+        }
+        override suspend fun undoCheckIn(milestoneId: String) {
+            val userId = current.value.checkIns.firstOrNull { it.milestoneId == milestoneId }?.userId ?: return
+            current.value = current.value.copy(
+                assignment = current.value.assignment.copy(milestones = current.value.assignment.milestones.map { milestone ->
+                    if (milestone.id != milestoneId) milestone else milestone.copy(
+                        collaborators = milestone.collaborators.map { collaborator ->
+                            if (collaborator.userId == userId) collaborator.copy(confirmedAt = null) else collaborator
+                        }
+                    )
+                }),
+                checkIns = current.value.checkIns.filterNot { it.milestoneId == milestoneId && it.userId == userId }
+            )
         }
         override suspend fun addNote(id: String, assignmentId: String, content: String) = Unit
         override fun observeDetails(assignmentId: String, userId: String, administrator: Boolean): Flow<AssignmentDetails> = current

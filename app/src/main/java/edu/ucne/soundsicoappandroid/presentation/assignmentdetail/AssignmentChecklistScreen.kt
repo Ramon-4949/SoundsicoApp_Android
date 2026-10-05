@@ -9,12 +9,17 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,6 +44,7 @@ fun AssignmentChecklistScreen(
     onBack: () -> Unit
 ) {
     BackHandler(onBack = onBack)
+    var undoTarget by remember { mutableStateOf<Milestone?>(null) }
     val oversight = details.canOversee(userId, administrator)
     val milestones = details.assignment.milestones
         .filter { oversight || it.collaborators.any { collaborator -> collaborator.userId == userId } }
@@ -86,15 +92,30 @@ fun AssignmentChecklistScreen(
                     state.checkingMilestoneId == milestone.id,
                     administrator,
                     milestone.collaborators.firstOrNull { it.userId == userId }?.deliveryLabel() ?: "Sin confirmar",
-                    onConfirm = { onIntent(AssignmentDetailIntent.CheckIn(milestone)) }
+                    onConfirm = { onIntent(AssignmentDetailIntent.CheckIn(milestone)) },
+                    onUndo = { undoTarget = milestone }
                 )
             }
         }
     }
+    undoTarget?.let { milestone ->
+        AlertDialog(
+            onDismissRequest = { undoTarget = null },
+            title = { Text("¿Deshacer tu confirmación?") },
+            text = { Text("Este hito volverá a aparecer como pendiente para ti.") },
+            confirmButton = {
+                TextButton({
+                    undoTarget = null
+                    onIntent(AssignmentDetailIntent.UndoCheckIn(milestone))
+                }) { Text("Deshacer") }
+            },
+            dismissButton = { TextButton({ undoTarget = null }) { Text("Cancelar") } }
+        )
+    }
     state.error?.let { message ->
         AlertDialog(
             onDismissRequest = { onIntent(AssignmentDetailIntent.DismissError) },
-            title = { Text("No se pudo confirmar el hito") },
+            title = { Text("No se pudo completar la acción") },
             text = { Text(message) },
             confirmButton = { TextButton({ onIntent(AssignmentDetailIntent.DismissError) }) { Text("Entendido") } }
         )
@@ -112,7 +133,8 @@ private fun ChecklistMilestone(
     checking: Boolean,
     administrator: Boolean,
     delivery: String,
-    onConfirm: () -> Unit
+    onConfirm: () -> Unit,
+    onUndo: () -> Unit
 ) {
     Row(Modifier.fillMaxWidth()) {
         Column(Modifier.width(42.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -169,6 +191,18 @@ private fun ChecklistMilestone(
                     if (locked) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f) else Color.Unspecified
                 )
                 Text(delivery, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (confirmed && !administrator) TextButton(
+                    onUndo,
+                    enabled = !checking,
+                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
+                ) {
+                    if (checking) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    else {
+                        Icon(Icons.AutoMirrored.Outlined.Undo, null, Modifier.size(17.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Deshacer confirmación")
+                    }
+                }
             }
         }
     }
@@ -256,12 +290,35 @@ private fun TeamMilestone(
 
 internal fun edu.ucne.soundsicoappandroid.domain.model.MilestoneCollaborator.deliveryLabel(): String {
     if (!confirmed) return "Sin confirmar"
-    val minutes = runCatching {
-        kotlin.math.abs(java.time.Duration.between(OffsetDateTime.parse(scheduledAt), OffsetDateTime.parse(confirmedAt)).toMinutes())
+    val seconds = runCatching {
+        kotlin.math.abs(java.time.Duration.between(OffsetDateTime.parse(scheduledAt), OffsetDateTime.parse(confirmedAt)).seconds)
     }.getOrNull()
+    val duration = seconds?.let(::formatChecklistDuration)
     return when (status) {
-        "temprano" -> "Temprano" + (minutes?.let { if (it > 0) " (-$it min)" else " (<1 min)" } ?: "")
-        "tardio" -> "Tardío" + (minutes?.let { if (it > 0) " (+$it min)" else " (<1 min)" } ?: "")
+        "temprano" -> "Temprano" + (seconds?.let { if (it >= 60) " (-$duration)" else " (<1 min)" } ?: "")
+        "tardio" -> "Tardío" + (seconds?.let { if (it >= 60) " (+$duration)" else " (<1 min)" } ?: "")
         else -> "A tiempo"
     }
+}
+
+private fun formatChecklistDuration(totalSeconds: Long): String {
+    var minutes = totalSeconds / 60
+    val units = listOf(
+        525_600L to "a",
+        43_200L to "mes",
+        10_080L to "sem",
+        1_440L to "d",
+        60L to "h",
+        1L to "min"
+    )
+    val parts = mutableListOf<String>()
+    for ((size, label) in units) {
+        if (minutes >= size) {
+            val amount = minutes / size
+            parts += "$amount $label"
+            minutes %= size
+            if (parts.size == 2) break
+        }
+    }
+    return parts.joinToString(" ").ifBlank { "<1 min" }
 }

@@ -36,4 +36,5 @@ class AppContainer(context: Context) {
     val deleteAccount = DeleteAccountUseCase(authRepository)
     val observeAssignmentDetails = ObserveAssignmentDetailsUseCase(milestonesRepository)
     val confirmMilestone = ConfirmMilestoneUseCase(milestonesRepository)
+    val undoMilestoneConfirmation = UndoMilestoneConfirmationUseCase(milestonesRepository)
 }

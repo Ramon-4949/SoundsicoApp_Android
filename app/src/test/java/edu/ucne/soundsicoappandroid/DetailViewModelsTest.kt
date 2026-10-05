@@ -9,6 +9,7 @@ import edu.ucne.soundsicoappandroid.presentation.assignmentdetail.AssignmentDeta
 import edu.ucne.soundsicoappandroid.presentation.assignmentdetail.isConfirmed
 import edu.ucne.soundsicoappandroid.domain.usecase.ConfirmMilestoneUseCase
 import edu.ucne.soundsicoappandroid.domain.usecase.ObserveAssignmentDetailsUseCase
+import edu.ucne.soundsicoappandroid.domain.usecase.UndoMilestoneConfirmationUseCase
 import edu.ucne.soundsicoappandroid.presentation.bulletindetail.BulletinDetailIntent
 import edu.ucne.soundsicoappandroid.presentation.bulletindetail.BulletinDetailViewModel
 import kotlinx.coroutines.Dispatchers
@@ -45,7 +46,8 @@ class DetailViewModelsTest {
         val admin = DetailAdminRepository()
         val milestones = DetailMilestonesRepository()
         val model = AssignmentDetailViewModel("assignment", "admin", true,
-            ObserveAssignmentDetailsUseCase(milestones), ConfirmMilestoneUseCase(milestones), milestones, admin)
+            ObserveAssignmentDetailsUseCase(milestones), ConfirmMilestoneUseCase(milestones),
+            UndoMilestoneConfirmationUseCase(milestones), milestones, admin)
         advanceUntilIdle()
 
         assertEquals("Montaje", model.state.value.details?.assignment?.title)
@@ -83,7 +85,8 @@ class DetailViewModelsTest {
     fun checklistConfirmationReloadsTheCollaboratorsMilestone() = runTest(dispatcher) {
         val milestones = DetailMilestonesRepository()
         val model = AssignmentDetailViewModel("assignment", "employee", false,
-            ObserveAssignmentDetailsUseCase(milestones), ConfirmMilestoneUseCase(milestones), milestones, DetailAdminRepository())
+            ObserveAssignmentDetailsUseCase(milestones), ConfirmMilestoneUseCase(milestones),
+            UndoMilestoneConfirmationUseCase(milestones), milestones, DetailAdminRepository())
         advanceUntilIdle()
         val milestone = requireNotNull(model.state.value.details).assignment.milestones.single()
 
@@ -126,6 +129,7 @@ class DetailViewModelsTest {
             confirmedMilestoneId = milestoneId
             return MilestoneCheckIn("check-in", milestoneId, userId, "2026-10-02T12:00:00-04:00", "pendiente")
         }
+        override suspend fun undoCheckIn(milestoneId: String) = Unit
         override suspend fun addNote(id: String, assignmentId: String, content: String) = Unit
         override fun observeDetails(assignmentId: String, userId: String, administrator: Boolean): Flow<AssignmentDetails> =
             flowOf(AssignmentDetails(assignment, emptyList(), emptyList(), emptyList()))

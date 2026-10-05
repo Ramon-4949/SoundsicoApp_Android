@@ -66,6 +66,14 @@ class NotificationsViewModelTest {
         assertTrue(NotificationFilter.Overdue.matches(item.copy(status = "vencida")))
     }
 
+    @Test fun messageBadgeCountsUnreadBulletinsOnlyOnce() {
+        val bulletin = item.copy(type = "comunicado_nuevo", destinationId = "bulletin", destinationType = "comunicado")
+        val state = NotificationsState(items = listOf(bulletin, bulletin.copy(id = "second"), item))
+
+        assertEquals(setOf("bulletin"), state.unreadBulletinIds)
+        assertEquals(1, state.unreadMessages)
+    }
+
     private class Notices(item: EmployeeNotification) : NotificationsRepository {
         val live = MutableStateFlow(listOf(item))
         override suspend fun getNotifications(userId: String) = live.value

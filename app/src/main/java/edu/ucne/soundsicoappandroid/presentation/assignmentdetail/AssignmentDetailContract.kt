@@ -19,6 +19,7 @@ data class AssignmentDetailState(
 sealed interface AssignmentDetailIntent {
     data object Refresh : AssignmentDetailIntent
     data class CheckIn(val milestone: Milestone) : AssignmentDetailIntent
+    data class UndoCheckIn(val milestone: Milestone) : AssignmentDetailIntent
     data class ChangeNote(val value: String) : AssignmentDetailIntent
     data object OpenNoteEditor : AssignmentDetailIntent
     data object CloseNoteEditor : AssignmentDetailIntent

@@ -12,6 +12,7 @@ interface MilestonesRepository {
     suspend fun getNotes(assignmentId: String): List<AssignmentNote>
     suspend fun getCollaborators(assignmentId: String): List<AssignmentCollaborator>
     suspend fun checkIn(milestoneId: String, userId: String): MilestoneCheckIn
+    suspend fun undoCheckIn(milestoneId: String)
     suspend fun addNote(id: String, assignmentId: String, content: String)
     fun observeDetails(assignmentId: String, userId: String, administrator: Boolean = false): Flow<AssignmentDetails>
 }
