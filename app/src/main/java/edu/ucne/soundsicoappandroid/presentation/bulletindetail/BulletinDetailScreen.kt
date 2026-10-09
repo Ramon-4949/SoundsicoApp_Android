@@ -15,11 +15,13 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import edu.ucne.soundsicoappandroid.presentation.admincreation.AdminMessageComposer
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,18 +33,28 @@ fun BulletinDetailScreen(
     onDeleted: () -> Unit
 ) {
     BackHandler {
-        if (state.editing) onIntent(BulletinDetailIntent.CancelEdit) else onBack()
+        if (!state.saving) {
+            if (state.editing) onIntent(BulletinDetailIntent.CancelEdit) else onBack()
+        }
+    }
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(state.saved) {
+        if (state.saved) {
+            snackbar.showSnackbar("Cambios guardados")
+            onIntent(BulletinDetailIntent.DismissSuccess)
+        }
     }
     LaunchedEffect(state.deleted) {
         if (state.deleted) onDeleted()
     }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text(if (state.editing) "Editar mensaje" else "Detalle Mensaje", fontWeight = FontWeight.SemiBold) },
+                title = { Text(if (state.editing) "Editar comunicado" else "Detalle Mensaje", fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
-                    IconButton({ if (state.editing) onIntent(BulletinDetailIntent.CancelEdit) else onBack() }) {
+                    IconButton({ if (state.editing) onIntent(BulletinDetailIntent.CancelEdit) else onBack() }, enabled = !state.saving) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Volver", tint = MaterialTheme.colorScheme.primary)
                     }
                 },
@@ -57,48 +69,30 @@ fun BulletinDetailScreen(
             )
         }
     ) { padding ->
-        Column(
+        if (state.editing) Box(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize()) {
+            AdminMessageComposer(
+                subject = state.subject,
+                message = state.message,
+                saving = state.saving,
+                onSubjectChange = { onIntent(BulletinDetailIntent.ChangeSubject(it)) },
+                onMessageChange = { onIntent(BulletinDetailIntent.ChangeMessage(it)) },
+                onSubmit = { onIntent(BulletinDetailIntent.Save) },
+                editing = true
+            )
+        } else Column(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             DetailLabel("ASUNTO DEL COMUNICADO")
-            if (state.editing) {
-                OutlinedTextField(
-                    state.subject,
-                    { onIntent(BulletinDetailIntent.ChangeSubject(it)) },
-                    Modifier.fillMaxWidth(),
-                    leadingIcon = { Icon(Icons.Outlined.Campaign, null, tint = MaterialTheme.colorScheme.primary) },
-                    singleLine = false
-                )
-            } else {
-                DetailCard {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Icon(Icons.Outlined.Campaign, null, tint = MaterialTheme.colorScheme.primary)
-                        Text(state.bulletin.subject, Modifier.weight(1f), fontWeight = FontWeight.Medium)
-                    }
+            DetailCard {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Icon(Icons.Outlined.Campaign, null, tint = MaterialTheme.colorScheme.primary)
+                    Text(state.bulletin.subject, Modifier.weight(1f), fontWeight = FontWeight.Medium)
                 }
             }
             DetailLabel("MENSAJE / INSTRUCCIONES")
-            if (state.editing) {
-                OutlinedTextField(
-                    state.message,
-                    { onIntent(BulletinDetailIntent.ChangeMessage(it)) },
-                    Modifier.fillMaxWidth().heightIn(min = 190.dp),
-                    minLines = 8,
-                    supportingText = { Text("${state.message.length} / 4000") }
-                )
-                Button(
-                    { onIntent(BulletinDetailIntent.Save) },
-                    Modifier.fillMaxWidth().height(52.dp),
-                    enabled = !state.saving
-                ) {
-                    if (state.saving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    else Text("Guardar cambios")
-                }
-            } else {
-                DetailCard {
-                    Text(state.bulletin.message, lineHeight = 22.sp)
-                }
+            DetailCard {
+                Text(state.bulletin.message, lineHeight = 22.sp)
             }
         }
     }

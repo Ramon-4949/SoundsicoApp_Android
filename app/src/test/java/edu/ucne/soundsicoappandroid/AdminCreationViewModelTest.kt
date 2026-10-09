@@ -80,6 +80,35 @@ class AdminCreationViewModelTest {
     }
 
     @Test
+    fun messageValidationMatchesIosAndPreservesFailedDraftForRetry() = runTest(dispatcher) {
+        val model = AdminCreationViewModel(admin, bulletins)
+        model.onIntent(AdminCreationIntent.SelectType(CreationType.Message))
+        model.onIntent(AdminCreationIntent.Continue)
+        model.onIntent(AdminCreationIntent.ChangeSubject("a".repeat(141)))
+        model.onIntent(AdminCreationIntent.ChangeMessage("Mensaje para el equipo"))
+        model.onIntent(AdminCreationIntent.Submit)
+        advanceUntilIdle()
+        assertNull(bulletins.subject)
+        assertNotNull(model.state.value.error)
+        model.onIntent(AdminCreationIntent.ChangeSubject("Prueba de sonido"))
+        model.onIntent(AdminCreationIntent.ChangeMessage("Corto"))
+        model.onIntent(AdminCreationIntent.Submit)
+        advanceUntilIdle()
+        assertNull(bulletins.subject)
+        model.onIntent(AdminCreationIntent.ChangeMessage("Mensaje para el equipo"))
+        bulletins.failNext = true
+        model.onIntent(AdminCreationIntent.Submit)
+        advanceUntilIdle()
+        assertFalse(model.state.value.completed)
+        assertFalse(model.state.value.saving)
+        assertNotNull(model.state.value.error)
+        assertEquals("Mensaje para el equipo", model.state.value.message)
+        model.onIntent(AdminCreationIntent.Submit)
+        advanceUntilIdle()
+        assertTrue(model.state.value.completed)
+    }
+
+    @Test
     fun editFlowPreservesMilestoneAssignmentsAndUpdatesExistingRecord() = runTest(dispatcher) {
         val assignment = Assignment(
             id = "assignment",
@@ -148,9 +177,14 @@ class AdminCreationViewModelTest {
 
     private class TestBulletinsRepository : BulletinsRepository {
         var subject: String? = null
+        var failNext = false
         override suspend fun getBulletins() = emptyList<Bulletin>()
         override suspend fun getBulletin(id: String) = error("No disponible")
         override suspend fun createBulletin(subject: String, message: String): Bulletin {
+            if (failNext) {
+                failNext = false
+                error("No se pudo publicar")
+            }
             this.subject = subject
             return Bulletin("bulletin", subject, message)
         }

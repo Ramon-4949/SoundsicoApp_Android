@@ -23,9 +23,24 @@ import edu.ucne.soundsicoappandroid.presentation.profile.AdminAccountsScreen
 import edu.ucne.soundsicoappandroid.presentation.profile.ProfileScreen
 
 @Composable
-fun HomeScreen(state: HomeState, onIntent: (HomeIntent) -> Unit, onCreateAssignment: () -> Unit = {}, onOpenAccount: () -> Unit = {}) {
+fun HomeScreen(
+    state: HomeState,
+    onIntent: (HomeIntent) -> Unit,
+    onCreateAssignment: () -> Unit = {},
+    onOpenAccount: () -> Unit = {},
+    notice: String? = null,
+    onNoticeShown: () -> Unit = {}
+) {
     val approved = state.profile?.access == AccountAccess.Approved
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(notice) {
+        if (notice != null) {
+            snackbar.showSnackbar(notice)
+            onNoticeShown()
+        }
+    }
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         containerColor = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.background else Color(0xFFF9F9F9),
         bottomBar = {
             if (approved) NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {

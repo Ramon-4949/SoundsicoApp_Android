@@ -11,6 +11,7 @@ data class BulletinDetailState(
     val deleteConfirmation: Boolean = false,
     val deleting: Boolean = false,
     val deleted: Boolean = false,
+    val saved: Boolean = false,
     val error: String? = null
 )
 
@@ -24,4 +25,5 @@ sealed interface BulletinDetailIntent {
     data object CancelDelete : BulletinDetailIntent
     data object ConfirmDelete : BulletinDetailIntent
     data object DismissError : BulletinDetailIntent
+    data object DismissSuccess : BulletinDetailIntent
 }
