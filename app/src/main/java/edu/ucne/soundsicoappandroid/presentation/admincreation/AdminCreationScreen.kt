@@ -14,7 +14,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
-import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.automirrored.outlined.Assignment
 import androidx.compose.material.icons.automirrored.outlined.Notes
 import androidx.compose.material.icons.outlined.*
@@ -39,7 +38,11 @@ fun AdminCreationScreen(
     onClose: () -> Unit,
     onCompleted: () -> Unit
 ) {
-    BackHandler { if (state.page == CreationPage.Type) onClose() else onIntent(AdminCreationIntent.Back) }
+    BackHandler {
+        if (!state.saving) {
+            if (state.page == CreationPage.Type) onClose() else onIntent(AdminCreationIntent.Back)
+        }
+    }
     LaunchedEffect(state.completed) {
         if (state.completed) onCompleted()
     }
@@ -49,7 +52,7 @@ fun AdminCreationScreen(
                 title = {
                     when (state.page) {
                         CreationPage.Form -> Text(
-                            if (state.selectedType == CreationType.Message) "Crear Mensaje" else if (state.editing) "Editar Asignación" else "Crear Asignación",
+                            if (state.selectedType == CreationType.Message) "Crear comunicado" else if (state.editing) "Editar Asignación" else "Crear Asignación",
                             fontWeight = FontWeight.SemiBold
                         )
                         CreationPage.Responsibles -> Text(
@@ -60,17 +63,24 @@ fun AdminCreationScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton({ if (state.page == CreationPage.Type) onClose() else onIntent(AdminCreationIntent.Back) }) {
+                    IconButton({ if (state.page == CreationPage.Type) onClose() else onIntent(AdminCreationIntent.Back) }, enabled = !state.saving) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Volver", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             )
         }
     ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
+        Box(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize()) {
             if (state.page == CreationPage.Type) CreationTypeContent(state, onIntent)
             else if (state.page == CreationPage.Responsibles) ResponsibleSelectionScreen(state, onIntent)
-            else if (state.selectedType == CreationType.Message) MessageForm(state, onIntent)
+            else if (state.selectedType == CreationType.Message) AdminMessageComposer(
+                subject = state.subject,
+                message = state.message,
+                saving = state.saving,
+                onSubjectChange = { onIntent(AdminCreationIntent.ChangeSubject(it)) },
+                onMessageChange = { onIntent(AdminCreationIntent.ChangeMessage(it)) },
+                onSubmit = { onIntent(AdminCreationIntent.Submit) }
+            )
             else AssignmentForm(state, onIntent)
         }
     }
@@ -323,51 +333,6 @@ private fun MilestoneEditor(
                 loading = false,
                 onClick = onSelectCollaborators
             )
-        }
-    }
-}
-
-@Composable
-private fun MessageForm(state: AdminCreationState, onIntent: (AdminCreationIntent) -> Unit) {
-    Column(
-        Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
-    ) {
-        Column {
-            FormLabel("ASUNTO DEL COMUNICADO")
-            OutlinedTextField(
-                state.subject,
-                { onIntent(AdminCreationIntent.ChangeSubject(it)) },
-                Modifier.fillMaxWidth(),
-                leadingIcon = { Icon(Icons.Outlined.Campaign, null, tint = MaterialTheme.colorScheme.primary) },
-                placeholder = { Text("Asunto del mensaje") },
-                minLines = 2,
-                shape = RoundedCornerShape(12.dp)
-            )
-        }
-        Column {
-            FormLabel("MENSAJE / INSTRUCCIONES")
-            OutlinedTextField(
-                state.message,
-                { onIntent(AdminCreationIntent.ChangeMessage(it)) },
-                Modifier.fillMaxWidth().heightIn(min = 190.dp),
-                placeholder = { Text("Escribe el comunicado para los colaboradores") },
-                supportingText = { Text("${state.message.length} caracteres", Modifier.fillMaxWidth()) },
-                shape = RoundedCornerShape(12.dp)
-            )
-        }
-        Button(
-            { onIntent(AdminCreationIntent.Submit) },
-            enabled = !state.saving,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-            shape = RoundedCornerShape(10.dp)
-        ) {
-            if (state.saving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
-            else {
-                Icon(Icons.AutoMirrored.Outlined.Send, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(7.dp))
-                Text("Crear Mensaje")
-            }
         }
     }
 }

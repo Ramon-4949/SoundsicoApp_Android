@@ -6,6 +6,7 @@ import edu.ucne.soundsicoappandroid.core.presentation.userMessage
 import edu.ucne.soundsicoappandroid.domain.model.*
 import edu.ucne.soundsicoappandroid.domain.repository.AdminRepository
 import edu.ucne.soundsicoappandroid.domain.repository.BulletinsRepository
+import edu.ucne.soundsicoappandroid.domain.validation.BulletinValidation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,6 +30,7 @@ class AdminCreationViewModel(
     }
 
     fun onIntent(intent: AdminCreationIntent) {
+        if (state.value.saving || state.value.completed) return
         when (intent) {
             is AdminCreationIntent.SelectType -> mutableState.update { it.copy(selectedType = intent.value, error = null) }
             AdminCreationIntent.Continue -> continueToForm()
@@ -81,8 +83,8 @@ class AdminCreationViewModel(
             is AdminCreationIntent.RemoveMilestone -> mutableState.update {
                 it.copy(milestones = it.milestones.filterNot { milestone -> milestone.id == intent.id }.ifEmpty { listOf(MilestoneInput()) })
             }
-            is AdminCreationIntent.ChangeSubject -> mutableState.update { it.copy(subject = intent.value.take(160)) }
-            is AdminCreationIntent.ChangeMessage -> mutableState.update { it.copy(message = intent.value.take(4000)) }
+            is AdminCreationIntent.ChangeSubject -> mutableState.update { it.copy(subject = intent.value) }
+            is AdminCreationIntent.ChangeMessage -> mutableState.update { it.copy(message = intent.value) }
             AdminCreationIntent.Submit -> submit()
             AdminCreationIntent.DismissError -> mutableState.update { it.copy(error = null) }
         }
@@ -143,9 +145,7 @@ class AdminCreationViewModel(
 
     private fun validate(input: AdminCreationState): String? {
         if (input.selectedType == CreationType.Message) {
-            if (input.subject.trim().length < 3) return "Escribe el asunto del comunicado."
-            if (input.message.trim().length < 3) return "Escribe el contenido del comunicado."
-            return null
+            return BulletinValidation.subjectError(input.subject) ?: BulletinValidation.messageError(input.message)
         }
         if (input.title.trim().length < 3) return "Escribe el título de la asignación."
         if (input.selectedType == CreationType.Field && input.location.trim().length < 3) return "Escribe la ubicación del evento."

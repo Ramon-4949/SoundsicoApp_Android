@@ -12,7 +12,6 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import edu.ucne.soundsicoappandroid.R
 import edu.ucne.soundsicoappandroid.app.MainActivity
-import java.util.UUID
 
 class SoundiscoMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
@@ -20,33 +19,53 @@ class SoundiscoMessagingService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
-        val recipient = message.data["recipient_id"] ?: return
-        val id = message.data["notification_id"] ?: return
-        if (runCatching { UUID.fromString(id) }.isFailure) return
         val owner = getSharedPreferences("soundisco_push", MODE_PRIVATE).getString("owner", null)
-        if (owner != recipient) return
+        val payload = PushNotificationPayload.parse(
+            message.data, owner, message.notification?.title, message.notification?.body, message.notification?.channelId
+        ) ?: return
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val manager = getSystemService(NotificationManager::class.java)
         NotificationChannels.create(this)
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            data = android.net.Uri.parse("soundisco://notification/$id")
-            putExtra("notification_id", id)
-            putExtra("recipient_id", recipient)
+            data = android.net.Uri.parse("soundisco://notification/${payload.notificationId}")
+            putExtra("notification_id", payload.notificationId)
+            putExtra("recipient_id", payload.recipientId)
         }
         val pending = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notification = NotificationCompat.Builder(this, CHANNEL)
+        val builder = NotificationCompat.Builder(this, if (payload.alarm) NotificationChannels.ALARMS else CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(message.data["title"] ?: "SounDisco")
-            .setContentText(message.data["body"])
-            .setStyle(NotificationCompat.BigTextStyle().bigText(message.data["body"]))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setDefaults(NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_VIBRATE)
+            .setContentTitle(payload.title)
+            .setContentText(payload.body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(payload.body))
+            .setPriority(if (payload.alarm) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_HIGH)
+            .setCategory(if (payload.alarm) NotificationCompat.CATEGORY_ALARM else NotificationCompat.CATEGORY_EVENT)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setAutoCancel(true)
             .setContentIntent(pending)
-            .build()
-        manager.notify(id, 0, notification)
+        if (payload.alarm) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                builder.setSound(NotificationChannels.alarmSound(this))
+                    .setVibrate(NotificationChannels.alarmVibration)
+            }
+            val fullScreenAllowed = Build.VERSION.SDK_INT < 34 || manager.canUseFullScreenIntent()
+            if (fullScreenAllowed) {
+                val alarmIntent = Intent(this, MilestoneAlarmActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    data = android.net.Uri.parse("soundisco://alarm/${payload.notificationId}")
+                    putExtra("notification_id", payload.notificationId)
+                    putExtra("recipient_id", payload.recipientId)
+                    putExtra("title", payload.title)
+                    putExtra("body", payload.body)
+                }
+                val alarmPending = PendingIntent.getActivity(this, 0, alarmIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                builder.setFullScreenIntent(alarmPending, true)
+            }
+        } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            builder.setDefaults(NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_VIBRATE)
+        }
+        manager.notify(payload.notificationId, 0, builder.build())
     }
 
     companion object { const val CHANNEL = NotificationChannels.OPERATIONS }

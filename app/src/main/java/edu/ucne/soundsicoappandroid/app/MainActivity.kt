@@ -164,6 +164,7 @@ private fun SoundiscoApp(container: AppContainer, pushRoute: Pair<String, String
             }
             var creating by rememberSaveable { mutableStateOf(false) }
             var creationSession by rememberSaveable { mutableIntStateOf(0) }
+            var notice by rememberSaveable { mutableStateOf<String?>(null) }
             var editingAssignment by remember { mutableStateOf<Assignment?>(null) }
             var editingProfile by rememberSaveable { mutableStateOf(false) }
             var editProfileSession by rememberSaveable { mutableIntStateOf(0) }
@@ -228,6 +229,10 @@ private fun SoundiscoApp(container: AppContainer, pushRoute: Pair<String, String
                         creating = false
                         editingAssignment = null
                         model.onIntent(HomeIntent.CloseDetail)
+                        if (creationState.selectedType == CreationType.Message) {
+                            notice = "Comunicado publicado"
+                            model.onIntent(HomeIntent.SelectTab(HomeTab.Messages))
+                        }
                         model.onIntent(HomeIntent.Refresh)
                     }
                 )
@@ -310,7 +315,9 @@ private fun SoundiscoApp(container: AppContainer, pushRoute: Pair<String, String
                         editingAssignment = null
                         creating = true
                     },
-                    onOpenAccount = { accountOpen = true }
+                    onOpenAccount = { accountOpen = true },
+                    notice = notice,
+                    onNoticeShown = { notice = null }
                 )
             }
         }

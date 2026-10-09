@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import edu.ucne.soundsicoappandroid.core.presentation.userMessage
 import edu.ucne.soundsicoappandroid.domain.model.Bulletin
 import edu.ucne.soundsicoappandroid.domain.repository.BulletinsRepository
+import edu.ucne.soundsicoappandroid.domain.validation.BulletinValidation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,18 +21,20 @@ class BulletinDetailViewModel(
     val state = mutableState.asStateFlow()
 
     fun onIntent(intent: BulletinDetailIntent) {
+        if (state.value.saving || state.value.deleting) return
         when (intent) {
             BulletinDetailIntent.Edit -> if (administrator) mutableState.update { it.copy(editing = true, error = null) }
             BulletinDetailIntent.CancelEdit -> mutableState.update {
                 it.copy(editing = false, subject = it.bulletin.subject, message = it.bulletin.message, error = null)
             }
-            is BulletinDetailIntent.ChangeSubject -> mutableState.update { it.copy(subject = intent.value.take(160)) }
-            is BulletinDetailIntent.ChangeMessage -> mutableState.update { it.copy(message = intent.value.take(4000)) }
+            is BulletinDetailIntent.ChangeSubject -> mutableState.update { it.copy(subject = intent.value) }
+            is BulletinDetailIntent.ChangeMessage -> mutableState.update { it.copy(message = intent.value) }
             BulletinDetailIntent.Save -> save()
             BulletinDetailIntent.RequestDelete -> if (administrator) mutableState.update { it.copy(deleteConfirmation = true) }
             BulletinDetailIntent.CancelDelete -> mutableState.update { it.copy(deleteConfirmation = false) }
             BulletinDetailIntent.ConfirmDelete -> delete()
             BulletinDetailIntent.DismissError -> mutableState.update { it.copy(error = null) }
+            BulletinDetailIntent.DismissSuccess -> mutableState.update { it.copy(saved = false) }
         }
     }
 
@@ -40,11 +43,7 @@ class BulletinDetailViewModel(
         if (!administrator || input.saving) return
         val subject = input.subject.trim()
         val message = input.message.trim()
-        val validation = when {
-            subject.length < 3 -> "Escribe el asunto del comunicado."
-            message.length < 3 -> "Escribe el contenido del comunicado."
-            else -> null
-        }
+        val validation = BulletinValidation.subjectError(input.subject) ?: BulletinValidation.messageError(input.message)
         if (validation != null) {
             mutableState.update { it.copy(error = validation) }
             return
@@ -54,7 +53,7 @@ class BulletinDetailViewModel(
             try {
                 val updated = repository.updateBulletin(input.bulletin.id, subject, message)
                 mutableState.update {
-                    it.copy(bulletin = updated, subject = updated.subject, message = updated.message, editing = false)
+                    it.copy(bulletin = updated, subject = updated.subject, message = updated.message, editing = false, saved = true)
                 }
             } catch (error: CancellationException) {
                 throw error
