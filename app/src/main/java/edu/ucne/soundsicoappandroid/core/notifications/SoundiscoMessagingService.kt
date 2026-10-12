@@ -21,7 +21,7 @@ class SoundiscoMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         val owner = getSharedPreferences("soundisco_push", MODE_PRIVATE).getString("owner", null)
         val payload = PushNotificationPayload.parse(
-            message.data, owner, message.notification?.title, message.notification?.body, message.notification?.channelId
+            message.data, owner, message.notification?.title, message.notification?.body
         ) ?: return
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val manager = getSystemService(NotificationManager::class.java)
@@ -42,6 +42,7 @@ class SoundiscoMessagingService : FirebaseMessagingService() {
             .setCategory(if (payload.alarm) NotificationCompat.CATEGORY_ALARM else NotificationCompat.CATEGORY_EVENT)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
             .setContentIntent(pending)
         if (payload.alarm) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -65,7 +66,11 @@ class SoundiscoMessagingService : FirebaseMessagingService() {
         } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             builder.setDefaults(NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_VIBRATE)
         }
-        manager.notify(payload.notificationId, 0, builder.build())
+        PushDeliveryStore(this).use { deliveries ->
+            deliveries.postOnce(payload.recipientId, payload.notificationId) {
+                manager.notify(payload.notificationId, 0, builder.build())
+            }
+        }
     }
 
     companion object { const val CHANNEL = NotificationChannels.OPERATIONS }
