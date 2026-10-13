@@ -98,8 +98,59 @@ class DetailViewModelsTest {
         assertTrue(milestone.isConfirmed(requireNotNull(model.state.value.details), "employee", false))
     }
 
-    private class DetailMilestonesRepository : MilestonesRepository {
+    @Test
+    fun assignedAdministratorConfirmsAndUndoesOnlyTheirOwnDelivery() = runTest(dispatcher) {
+        val milestones = DetailMilestonesRepository(listOf("admin", "employee"))
+        val model = AssignmentDetailViewModel("assignment", "admin", true,
+            ObserveAssignmentDetailsUseCase(milestones), ConfirmMilestoneUseCase(milestones),
+            UndoMilestoneConfirmationUseCase(milestones), milestones, DetailAdminRepository())
+        advanceUntilIdle()
+        val milestone = requireNotNull(model.state.value.details).assignment.milestones.single()
+        model.onIntent(AssignmentDetailIntent.CheckIn(milestone))
+        model.onIntent(AssignmentDetailIntent.CheckIn(milestone))
+        advanceUntilIdle()
+
+        assertEquals(1, milestones.confirmCalls)
+        assertEquals(listOf("admin"), model.state.value.details?.checkIns?.map { it.userId })
+        assertTrue(milestones.reloadedAsAdministrator)
+        model.onIntent(AssignmentDetailIntent.CheckIn(milestone))
+        advanceUntilIdle()
+        assertEquals(1, milestones.confirmCalls)
+        model.onIntent(AssignmentDetailIntent.UndoCheckIn(milestone))
+        model.onIntent(AssignmentDetailIntent.UndoCheckIn(milestone))
+        advanceUntilIdle()
+
+        assertEquals(1, milestones.undoCalls)
+        assertTrue(requireNotNull(model.state.value.details).checkIns.isEmpty())
+        assertTrue(milestones.reloadedAsAdministrator)
+    }
+
+    @Test
+    fun unassignedAdministratorCanReadButCannotConfirmOrUndo() = runTest(dispatcher) {
+        val milestones = DetailMilestonesRepository()
+        val model = AssignmentDetailViewModel("assignment", "admin", true,
+            ObserveAssignmentDetailsUseCase(milestones), ConfirmMilestoneUseCase(milestones),
+            UndoMilestoneConfirmationUseCase(milestones), milestones, DetailAdminRepository())
+        advanceUntilIdle()
+        val milestone = requireNotNull(model.state.value.details).assignment.milestones.single()
+        model.onIntent(AssignmentDetailIntent.CheckIn(milestone))
+        advanceUntilIdle()
+        assertEquals(0, milestones.confirmCalls)
+        assertEquals("No estás asignado a este hito.", model.state.value.error)
+        val forged = milestone.copy(collaborators = listOf(
+            MilestoneCollaborator(milestone.id, "admin", "a_tiempo", "2026-10-12T12:00:00Z")
+        ))
+        model.onIntent(AssignmentDetailIntent.UndoCheckIn(forged))
+        advanceUntilIdle()
+        assertEquals(0, milestones.undoCalls)
+        assertEquals("No estás asignado a este hito.", model.state.value.error)
+    }
+
+    private class DetailMilestonesRepository(users: List<String> = listOf("employee")) : MilestonesRepository {
         var confirmedMilestoneId: String? = null
+        var confirmCalls = 0
+        var undoCalls = 0
+        var reloadedAsAdministrator = false
         private val assignment = Assignment(
             "assignment",
             "Montaje",
@@ -115,21 +166,27 @@ class DetailViewModelsTest {
                     "assignment",
                     1,
                     "Llegada",
-                    collaborators = listOf(MilestoneCollaborator("milestone", "employee", "asignado"))
+                    collaborators = users.map { MilestoneCollaborator("milestone", it, "sin_confirmar") }
                 )
             )
         )
 
-        override suspend fun getDetails(assignmentId: String, userId: String, administrator: Boolean) =
-            AssignmentDetails(assignment, currentCheckIns(userId), emptyList(), emptyList())
+        override suspend fun getDetails(assignmentId: String, userId: String, administrator: Boolean): AssignmentDetails {
+            reloadedAsAdministrator = administrator
+            return AssignmentDetails(assignment, currentCheckIns(userId), emptyList(), emptyList())
+        }
         override suspend fun getCheckIns(assignmentId: String, userId: String) = emptyList<MilestoneCheckIn>()
         override suspend fun getNotes(assignmentId: String) = emptyList<AssignmentNote>()
         override suspend fun getCollaborators(assignmentId: String) = emptyList<AssignmentCollaborator>()
         override suspend fun checkIn(milestoneId: String, userId: String): MilestoneCheckIn {
+            confirmCalls++
             confirmedMilestoneId = milestoneId
             return MilestoneCheckIn("check-in", milestoneId, userId, "2026-10-02T12:00:00-04:00", "pendiente")
         }
-        override suspend fun undoCheckIn(milestoneId: String) = Unit
+        override suspend fun undoCheckIn(milestoneId: String) {
+            undoCalls++
+            confirmedMilestoneId = null
+        }
         override suspend fun addNote(id: String, assignmentId: String, content: String) = Unit
         override fun observeDetails(assignmentId: String, userId: String, administrator: Boolean): Flow<AssignmentDetails> =
             flowOf(AssignmentDetails(assignment, emptyList(), emptyList(), emptyList()))

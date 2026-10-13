@@ -16,7 +16,8 @@ class SupabaseBulletinsRepository(private val client: SupabaseClient) : Bulletin
         var offset = 0L
         do {
             val page = client.from("comunicados").select {
-                order("fecha_publicacion", Order.DESCENDING)
+                order("fecha_publicacion", Order.DESCENDING, nullsFirst = false)
+                order("id", Order.DESCENDING)
                 range(offset, offset + 199)
             }.decodeList<BulletinDto>()
             result += page

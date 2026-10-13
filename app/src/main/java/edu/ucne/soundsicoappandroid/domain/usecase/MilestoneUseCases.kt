@@ -2,6 +2,7 @@ package edu.ucne.soundsicoappandroid.domain.usecase
 
 import edu.ucne.soundsicoappandroid.domain.model.AssignmentDetails
 import edu.ucne.soundsicoappandroid.domain.model.Milestone
+import edu.ucne.soundsicoappandroid.domain.model.confirmationBlock
 import edu.ucne.soundsicoappandroid.domain.repository.MilestonesRepository
 import kotlinx.coroutines.flow.map
 
@@ -18,28 +19,24 @@ class ObserveAssignmentDetailsUseCase(private val repository: MilestonesReposito
 }
 
 class ConfirmMilestoneUseCase(private val repository: MilestonesRepository) {
-    suspend operator fun invoke(details: AssignmentDetails, milestone: Milestone, userId: String): AssignmentDetails {
-        val personal = details.assignment.milestones.filter { it.isAssignedTo(userId) }.sortedBy { it.order }
-        val index = personal.indexOfFirst { it.id == milestone.id }
-        require(index >= 0) { "No estás asignado a este hito." }
-        require(!milestone.isConfirmedBy(userId) && details.checkIns.none { it.milestoneId == milestone.id && it.userId == userId }) {
-            "Este hito ya fue confirmado."
-        }
-        require(personal.take(index).all { previous ->
-            previous.isConfirmedBy(userId) || details.checkIns.any { it.milestoneId == previous.id && it.userId == userId }
-        }) { "Confirma primero tu hito anterior." }
+    suspend operator fun invoke(details: AssignmentDetails, milestone: Milestone, userId: String, administrator: Boolean = false): AssignmentDetails {
+        val block = details.confirmationBlock(milestone.id, userId)
+        require(block == null) { block.orEmpty() }
         repository.checkIn(milestone.id, userId)
-        return repository.getDetails(details.assignment.id, userId, false)
+        return repository.getDetails(details.assignment.id, userId, administrator)
     }
 }
 
 class UndoMilestoneConfirmationUseCase(private val repository: MilestonesRepository) {
-    suspend operator fun invoke(details: AssignmentDetails, milestone: Milestone, userId: String): AssignmentDetails {
-        require(milestone.isAssignedTo(userId)) { "No estás asignado a este hito." }
-        require(milestone.isConfirmedBy(userId) || details.checkIns.any {
+    suspend operator fun invoke(details: AssignmentDetails, milestone: Milestone, userId: String, administrator: Boolean = false): AssignmentDetails {
+        val current = requireNotNull(details.assignment.milestones.firstOrNull { it.id == milestone.id }) {
+            "No estás asignado a este hito."
+        }
+        require(current.isAssignedTo(userId)) { "No estás asignado a este hito." }
+        require(current.isConfirmedBy(userId) || details.checkIns.any {
             it.milestoneId == milestone.id && it.userId == userId
         }) { "Este hito todavía no ha sido confirmado." }
         repository.undoCheckIn(milestone.id)
-        return repository.getDetails(details.assignment.id, userId, false)
+        return repository.getDetails(details.assignment.id, userId, administrator)
     }
 }

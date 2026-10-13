@@ -23,11 +23,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import edu.ucne.soundsicoappandroid.domain.model.AssignmentDetails
 import edu.ucne.soundsicoappandroid.domain.model.Milestone
+import edu.ucne.soundsicoappandroid.domain.model.confirmationBlock
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -47,7 +49,7 @@ fun AssignmentChecklistScreen(
     var undoTarget by remember { mutableStateOf<Milestone?>(null) }
     val oversight = details.canOversee(userId, administrator)
     val milestones = details.assignment.milestones
-        .filter { oversight || it.collaborators.any { collaborator -> collaborator.userId == userId } }
+        .filter { oversight || it.isAssignedTo(userId) }
         .sortedBy { it.order }
     val completion = milestones.associateWith { milestone -> milestone.isConfirmed(details, userId, oversight) }
     val activeIndex = milestones.indexOfFirst { completion[it] != true }
@@ -81,7 +83,12 @@ fun AssignmentChecklistScreen(
                 val confirmed = completion[milestone] == true
                 val active = index == activeIndex
                 val locked = !confirmed && !active
-                if (oversight) TeamMilestone(milestone, details, index + 1, active, index < milestones.lastIndex)
+                if (oversight) TeamMilestone(
+                    milestone, details, index + 1, active, index < milestones.lastIndex,
+                    userId, state.checkingMilestoneId,
+                    onConfirm = { onIntent(AssignmentDetailIntent.CheckIn(milestone)) },
+                    onUndo = { undoTarget = milestone }
+                )
                 else ChecklistMilestone(
                     milestone,
                     index + 1,
@@ -90,7 +97,7 @@ fun AssignmentChecklistScreen(
                     locked,
                     index < milestones.lastIndex,
                     state.checkingMilestoneId == milestone.id,
-                    administrator,
+                    state.checkingMilestoneId == null,
                     milestone.collaborators.firstOrNull { it.userId == userId }?.deliveryLabel() ?: "Sin confirmar",
                     onConfirm = { onIntent(AssignmentDetailIntent.CheckIn(milestone)) },
                     onUndo = { undoTarget = milestone }
@@ -131,7 +138,7 @@ private fun ChecklistMilestone(
     locked: Boolean,
     hasNext: Boolean,
     checking: Boolean,
-    administrator: Boolean,
+    actionsEnabled: Boolean,
     delivery: String,
     onConfirm: () -> Unit,
     onUndo: () -> Unit
@@ -170,10 +177,10 @@ private fun ChecklistMilestone(
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     MilestoneHeader(milestone, Color.Unspecified)
                     Text(delivery, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (!administrator) Button(
+                    Button(
                         onConfirm,
-                        Modifier.fillMaxWidth().height(46.dp),
-                        enabled = !checking
+                        Modifier.fillMaxWidth().height(46.dp).testTag("confirm-${milestone.id}"),
+                        enabled = actionsEnabled
                     ) {
                         if (checking) CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp)
                         else {
@@ -191,9 +198,10 @@ private fun ChecklistMilestone(
                     if (locked) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f) else Color.Unspecified
                 )
                 Text(delivery, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (confirmed && !administrator) TextButton(
+                if (confirmed) TextButton(
                     onUndo,
-                    enabled = !checking,
+                    modifier = Modifier.testTag("undo-${milestone.id}"),
+                    enabled = actionsEnabled,
                     contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
                 ) {
                     if (checking) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -220,7 +228,7 @@ private fun MilestoneHeader(milestone: Milestone, color: Color) {
 
 internal fun Milestone.isConfirmed(details: AssignmentDetails, userId: String, administrator: Boolean): Boolean {
     if (administrator) return globallyCompleted
-    return collaborators.any { it.userId == userId && it.confirmed } ||
+    return isConfirmedBy(userId) ||
         details.checkIns.any { it.milestoneId == id && it.userId == userId }
 }
 
@@ -239,7 +247,11 @@ private fun TeamMilestone(
     details: AssignmentDetails,
     number: Int,
     active: Boolean,
-    hasNext: Boolean
+    hasNext: Boolean,
+    userId: String,
+    checkingMilestoneId: String?,
+    onConfirm: () -> Unit,
+    onUndo: () -> Unit
 ) {
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
         Column(Modifier.width(36.dp).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -284,6 +296,29 @@ private fun TeamMilestone(
                     }
                 }
             }
+            if (milestone.isAssignedTo(userId)) {
+                val ownConfirmed = milestone.isConfirmed(details, userId, false)
+                val block = details.confirmationBlock(milestone.id, userId)
+                val saving = checkingMilestoneId == milestone.id
+                if (ownConfirmed) TextButton(
+                    onUndo,
+                    modifier = Modifier.testTag("undo-${milestone.id}"),
+                    enabled = checkingMilestoneId == null
+                ) {
+                    Icon(Icons.AutoMirrored.Outlined.Undo, null, Modifier.size(17.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (saving) "Deshaciendo…" else "Deshacer confirmación")
+                } else if (block == null) Button(
+                    onConfirm,
+                    Modifier.fillMaxWidth().heightIn(min = 46.dp).testTag("confirm-${milestone.id}"),
+                    enabled = checkingMilestoneId == null
+                ) {
+                    if (saving) CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    else Icon(Icons.Outlined.CheckCircle, null, Modifier.size(19.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text(if (saving) "Confirmando…" else "Confirmar")
+                } else Text(block, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
@@ -291,7 +326,7 @@ private fun TeamMilestone(
 internal fun edu.ucne.soundsicoappandroid.domain.model.MilestoneCollaborator.deliveryLabel(): String {
     if (!confirmed) return "Sin confirmar"
     val seconds = runCatching {
-        kotlin.math.abs(java.time.Duration.between(OffsetDateTime.parse(scheduledAt), OffsetDateTime.parse(confirmedAt)).seconds)
+        kotlin.math.abs(java.time.Duration.between(OffsetDateTime.parse(scheduledAt).toInstant(), OffsetDateTime.parse(confirmedAt).toInstant()).seconds)
     }.getOrNull()
     val duration = seconds?.let(::formatChecklistDuration)
     return when (status) {
