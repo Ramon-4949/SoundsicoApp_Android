@@ -21,8 +21,19 @@ data class Milestone(
     val collaborators: List<MilestoneCollaborator> = emptyList()
 ) {
     val globallyCompleted: Boolean get() = if (collaborators.isEmpty()) completed else collaborators.all(MilestoneCollaborator::confirmed)
-    fun isAssignedTo(userId: String): Boolean = collaborators.any { it.userId == userId }
-    fun isConfirmedBy(userId: String): Boolean = collaborators.any { it.userId == userId && it.confirmed }
+    fun isAssignedTo(userId: String): Boolean = collaborators.any { it.milestoneId == id && it.userId == userId }
+    fun isConfirmedBy(userId: String): Boolean = collaborators.any { it.milestoneId == id && it.userId == userId && it.confirmed }
+}
+
+fun AssignmentDetails.confirmationBlock(milestoneId: String, userId: String): String? {
+    val personal = assignment.milestones.filter { it.isAssignedTo(userId) }.sortedBy { it.order }
+    val index = personal.indexOfFirst { it.id == milestoneId }
+    if (index < 0) return "No estás asignado a este hito."
+    fun Milestone.confirmed(): Boolean = isConfirmedBy(userId) ||
+        checkIns.any { it.milestoneId == id && it.userId == userId }
+    if (personal[index].confirmed()) return "Este hito ya fue confirmado."
+    if (personal.take(index).any { !it.confirmed() }) return "Confirma primero tu hito anterior."
+    return null
 }
 
 data class MilestoneDraft(

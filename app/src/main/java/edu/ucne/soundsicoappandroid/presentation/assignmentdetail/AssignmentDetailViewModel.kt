@@ -70,12 +70,12 @@ class AssignmentDetailViewModel(
     }
 
     private fun checkIn(milestone: Milestone) {
-        if (administrator || state.value.checkingMilestoneId != null) return
+        if (state.value.checkingMilestoneId != null) return
         mutableState.update { it.copy(checkingMilestoneId = milestone.id, error = null) }
         viewModelScope.launch {
             try {
                 val current = state.value.details ?: error("No se cargó la asignación.")
-                val details = confirmMilestone(current, milestone, userId)
+                val details = confirmMilestone(current, milestone, userId, administrator)
                 mutableState.update { it.copy(details = details) }
             } catch (error: CancellationException) {
                 throw error
@@ -88,12 +88,12 @@ class AssignmentDetailViewModel(
     }
 
     private fun undoCheckIn(milestone: Milestone) {
-        if (administrator || state.value.checkingMilestoneId != null) return
+        if (state.value.checkingMilestoneId != null) return
         mutableState.update { it.copy(checkingMilestoneId = milestone.id, error = null) }
         viewModelScope.launch {
             try {
                 val current = state.value.details ?: error("No se cargó la asignación.")
-                val details = undoMilestoneConfirmation(current, milestone, userId)
+                val details = undoMilestoneConfirmation(current, milestone, userId, administrator)
                 mutableState.update { it.copy(details = details) }
             } catch (error: CancellationException) {
                 throw error

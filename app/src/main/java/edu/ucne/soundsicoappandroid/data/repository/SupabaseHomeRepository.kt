@@ -108,19 +108,7 @@ class SupabaseHomeRepository(private val client: SupabaseClient) : HomeRepositor
         }
     }
 
-    private suspend fun loadBulletins(): List<Bulletin> {
-        val result = mutableListOf<BulletinDto>()
-        var offset = 0L
-        do {
-            val page = client.from("comunicados").select {
-                order("id", Order.DESCENDING)
-                range(offset, offset + 199)
-            }.decodeList<BulletinDto>()
-            result.addAll(page)
-            offset += 200
-        } while (page.size == 200)
-        return result.map { it.toDomain() }
-    }
+    private suspend fun loadBulletins(): List<Bulletin> = SupabaseBulletinsRepository(client).getBulletins()
 
     private fun Flow<Unit>.mergeWith(other: Flow<Unit>): Flow<Unit> = merge(this, other)
 }
