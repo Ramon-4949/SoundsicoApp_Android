@@ -27,7 +27,7 @@ class SupabaseHomeRepository(private val client: SupabaseClient) : HomeRepositor
         val bulletins = async { loadBulletins() }
         if (administrator) {
             val dashboard = async { loadDashboard() }
-            val page = loadAdminAssignments(0, "todas", "")
+            val page = loadAdminAssignments(0, AdminAssignmentFilter.Pending.value, "")
             HomeContent(page.items, bulletins.await(), dashboard.await(), page.nextOffset)
         } else {
             HomeContent(loadEmployeeAssignments(userId), bulletins.await())

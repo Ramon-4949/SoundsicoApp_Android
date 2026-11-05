@@ -57,13 +57,7 @@ internal fun HomeHeader(state: HomeState, onIntent: (HomeIntent) -> Unit) {
 @Composable
 internal fun AssignmentSectionHeader(state: HomeState, onIntent: (HomeIntent) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Asignaciones actuales", style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            TextButton({ onIntent(HomeIntent.ShowAll) }, enabled = !state.loading) {
-                Text("Ver todas (${state.content.dashboard?.metrics?.total ?: state.content.assignments.size})", fontSize = 12.sp)
-            }
-        }
+        Text("Asignaciones actuales", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AssignmentFilter.entries.forEach { filter ->
                 FilterChip(
