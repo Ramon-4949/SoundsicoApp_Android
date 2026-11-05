@@ -50,10 +50,6 @@ class HomeViewModel(
                 mutableState.update { it.copy(searching = !it.searching) }
                 if (!state.value.searching) changeSearch("")
             }
-            HomeIntent.ShowAll -> {
-                mutableState.update { it.copy(todayOnly = false, search = "", filter = AssignmentFilter.All) }
-                loadPage()
-            }
             HomeIntent.ShowToday -> mutableState.update { it.copy(todayOnly = true, today = LocalDate.now()) }
             HomeIntent.LoadMore -> loadPage(append = true)
             HomeIntent.RetryAssignments -> loadPage()
@@ -134,11 +130,14 @@ class HomeViewModel(
                 mutableState.update { it.copy(profile = profile) }
                 if (profile.access == AccountAccess.Approved) {
                     val content = getContent(profile)
-                    mutableState.update { it.copy(content = content) }
-                    if (profile.isAdministrator && (state.value.filter != AssignmentFilter.All || state.value.search.isNotBlank())) {
-                        val page = getContent.adminAssignments(profile, 0, state.value.filter.serverValue, state.value.search)
-                        mutableState.update { it.copy(content = it.content.copy(assignments = page.items, nextOffset = page.nextOffset)) }
+                    val input = state.value
+                    val selectedContent = if (profile.isAdministrator && (input.filter != AssignmentFilter.Pending || input.search.isNotBlank())) {
+                        val page = getContent.adminAssignments(profile, 0, input.filter.serverValue, input.search)
+                        content.copy(assignments = page.items, nextOffset = page.nextOffset)
+                    } else {
+                        content
                     }
+                    mutableState.update { it.copy(content = selectedContent) }
                     observeHome(profile)
                 }
             } catch (error: CancellationException) {
@@ -190,7 +189,7 @@ class HomeViewModel(
                     mutableState.update { it.copy(actionFailure = error.userMessage()) }
                 }
                 .collectLatest { live ->
-                    if (profile.isAdministrator && (state.value.filter != AssignmentFilter.All || state.value.search.isNotBlank())) {
+                    if (profile.isAdministrator && (state.value.filter != AssignmentFilter.Pending || state.value.search.isNotBlank())) {
                         val page = getContent.adminAssignments(profile, 0, state.value.filter.serverValue, state.value.search)
                         mutableState.update {
                             it.copy(content = live.copy(assignments = page.items, nextOffset = page.nextOffset))

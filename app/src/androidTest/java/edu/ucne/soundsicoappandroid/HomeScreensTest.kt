@@ -30,20 +30,19 @@ class HomeScreensTest {
         EmployeeProfile("u", "Ana", if (admin) "Yankee" else "JoseCarlos01", "", "Técnico",
             if (admin) "admin" else "empleado", AccountAccess.Approved),
         loading = false,
-        content = HomeContent(assignments, emptyList(), if (admin) AdminDashboard(
+        content = HomeContent(if (admin) assignments.take(1) else assignments, emptyList(), if (admin) AdminDashboard(
             DashboardMetrics(17, 5, 2, 98.4, listOf(1, 2, 0, 4, 3, 2, 5)),
             listOf(PendingAccount("p", "Ana Pérez", "ana@empresa.com", "Técnico"))
         ) else null)
     )
 
-    @Test fun adminShowsMetricsAndWorkingApprovalShortcut() {
+    @Test fun adminShowsMetricsAndDefaultsToPendingAssignments() {
         val intents = mutableListOf<HomeIntent>()
         compose.setContent { SoundiscoTheme { HomeScreen(state(true), intents::add) } }
         compose.onNodeWithText("Asignadas").assertIsDisplayed()
         compose.onNodeWithText("En progreso").assertIsDisplayed()
+        assertPendingFilters()
         capture("home-admin.png")
-        compose.onNodeWithText("Revisar aprobaciones (1)").performClick()
-        assertTrue(intents.contains(HomeIntent.OpenApprovals))
     }
 
     @Test fun employeeShowsDailyCardsWithoutAdminControls() {
@@ -52,9 +51,19 @@ class HomeScreensTest {
         compose.onNodeWithText("Montaje de Sonido Principal").assertIsDisplayed()
         compose.onNodeWithText("Asignadas").assertDoesNotExist()
         compose.onNodeWithText("Revisar aprobaciones (1)").assertDoesNotExist()
+        compose.onNodeWithText("Cotización de boda de Santiago 2").assertDoesNotExist()
+        assertPendingFilters()
         capture("home-employee.png")
-        compose.onNodeWithText("Ver todas (2)").performClick()
-        assertTrue(intents.contains(HomeIntent.ShowAll))
+        compose.onNodeWithText("Completadas").performClick()
+        assertTrue(intents.contains(HomeIntent.Filter(AssignmentFilter.Complete)))
+    }
+
+    private fun assertPendingFilters() {
+        compose.onNodeWithText("Pendientes").assertIsSelected()
+        compose.onNodeWithText("Vencidas").assertExists()
+        compose.onNodeWithText("Completadas").assertExists()
+        compose.onNodeWithText("Todas").assertDoesNotExist()
+        compose.onNodeWithText("Ver todas", substring = true).assertDoesNotExist()
     }
 
     @Test fun approvalRequiresExplicitConfirmation() {

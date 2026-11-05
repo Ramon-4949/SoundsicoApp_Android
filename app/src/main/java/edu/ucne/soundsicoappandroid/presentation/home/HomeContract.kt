@@ -7,7 +7,7 @@ import java.time.ZoneId
 
 enum class HomeTab(val title: String) { Start("Inicio"), Messages("Mensajes"), Calendar("Calendario"), Profile("Perfil") }
 enum class AssignmentFilter(val title: String, val serverValue: String) {
-    All("Todas", "todas"), Pending("Pendientes", "pendientes"),
+    Pending("Pendientes", "pendientes"),
     Overdue("Vencidas", "vencidas"), Complete("Completadas", "completadas")
 }
 enum class HomeAudience { Resolving, Restricted, Administrator, Employee }
@@ -28,7 +28,7 @@ data class HomeState(
     val content: HomeContent = HomeContent(emptyList(), emptyList()),
     val search: String = "",
     val searching: Boolean = false,
-    val filter: AssignmentFilter = AssignmentFilter.All,
+    val filter: AssignmentFilter = AssignmentFilter.Pending,
     val selectedDate: LocalDate = LocalDate.now(),
     val today: LocalDate = LocalDate.now(),
     val todayOnly: Boolean = false,
@@ -70,7 +70,6 @@ data class HomeState(
             (!todayOnly || assignment.occursOn(today)) &&
                 (assignment.title + " " + assignment.location.orEmpty()).contains(search.trim(), true) &&
                 when (filter) {
-                    AssignmentFilter.All -> true
                     AssignmentFilter.Pending -> assignment.status in listOf("pendiente", "en_curso")
                     AssignmentFilter.Complete -> assignment.status == "completada"
                     AssignmentFilter.Overdue -> assignment.status == "vencida"
@@ -89,7 +88,6 @@ sealed interface HomeIntent {
     data object Refresh : HomeIntent
     data object SignOut : HomeIntent
     data object ToggleSearch : HomeIntent
-    data object ShowAll : HomeIntent
     data object ShowToday : HomeIntent
     data object LoadMore : HomeIntent
     data object RetryAssignments : HomeIntent

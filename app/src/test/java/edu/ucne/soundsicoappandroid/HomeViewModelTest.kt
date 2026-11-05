@@ -37,6 +37,7 @@ class HomeViewModelTest {
         advanceUntilIdle()
         assertEquals(listOf(true), repository.loads)
         assertEquals(HomeAudience.Administrator, model.state.value.audience)
+        assertEquals(AssignmentFilter.Pending, model.state.value.filter)
         assertEquals(17, model.state.value.content.dashboard?.metrics?.total)
         assertEquals(1, model.state.value.content.dashboard?.pendingAccounts?.size)
     }
@@ -80,7 +81,7 @@ class HomeViewModelTest {
         advanceTimeBy(150)
         model.onIntent(HomeIntent.Search("sonido"))
         advanceUntilIdle()
-        assertEquals(listOf("0:todas:sonido"), repository.requests)
+        assertEquals(listOf("0:pendientes:sonido"), repository.requests)
         assertFalse(model.state.value.listLoading)
     }
 
@@ -91,7 +92,7 @@ class HomeViewModelTest {
         model.onIntent(HomeIntent.LoadMore)
         model.onIntent(HomeIntent.LoadMore)
         advanceUntilIdle()
-        assertEquals(listOf("50:todas:"), repository.requests)
+        assertEquals(listOf("50:pendientes:"), repository.requests)
         assertEquals(1, model.state.value.content.assignments.size)
         assertNull(model.state.value.content.nextOffset)
     }
@@ -115,15 +116,18 @@ class HomeViewModelTest {
         assertEquals(0, model.state.value.content.dashboard?.pendingAccounts?.size)
     }
 
-    @Test fun employeeHomeShowsAllAssignmentsAndCanFilterToday() = runTest(dispatcher) {
+    @Test fun employeeHomeStartsWithPendingAssignmentsAndCanFilterToday() = runTest(dispatcher) {
         val today = LocalDate.now()
         val date = today.atTime(10, 0).atZone(ZoneId.systemDefault()).toOffsetDateTime().toString()
         val tomorrow = today.plusDays(1).atTime(10, 0).atZone(ZoneId.systemDefault()).toOffsetDateTime().toString()
         repository.items = listOf(repository.assignment.copy(id = "today", scheduledDates = listOf(date)),
-            repository.assignment.copy(id = "tomorrow", deadline = tomorrow))
+            repository.assignment.copy(id = "tomorrow", deadline = tomorrow, status = "en_curso"),
+            repository.assignment.copy(id = "completed", status = "completada"),
+            repository.assignment.copy(id = "overdue", status = "vencida"))
         val model = model()
         advanceUntilIdle()
-        assertEquals(2, model.state.value.visibleAssignments.size)
+        assertEquals(AssignmentFilter.Pending, model.state.value.filter)
+        assertEquals(listOf("today", "tomorrow"), model.state.value.visibleAssignments.map { it.id })
         model.onIntent(HomeIntent.ShowToday)
         assertEquals(listOf("today"), model.state.value.visibleAssignments.map { it.id })
     }
