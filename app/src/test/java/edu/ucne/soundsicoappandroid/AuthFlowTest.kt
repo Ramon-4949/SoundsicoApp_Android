@@ -82,7 +82,7 @@ class AuthFlowTest {
         auth.access = AccountAccess.Rejected
         model.onIntent(HomeIntent.Refresh)
         advanceUntilIdle()
-        assertTrue(model.state.value.content.assignments.isEmpty())
+        assertTrue(model.state.value.assignmentList.items.isEmpty())
     }
 
     @Test fun signUpNormalizesMetadataAndNeverSuppliesRole() = runTest(dispatcher) {
@@ -129,13 +129,14 @@ class AuthFlowTest {
 
     private class FakeHome : HomeRepository {
         var calls = 0
-        override suspend fun loadEmployeeAssignments(userId: String) = emptyList<Assignment>()
         override suspend fun loadDashboard() = AdminDashboard(DashboardMetrics(0, 0, 0, 0.0, emptyList()), emptyList())
-        override suspend fun loadAdminAssignments(offset: Int, filter: String, search: String) = AssignmentPage(emptyList(), null)
+        override suspend fun loadAssignmentPage(
+            userId: String, administrator: Boolean, offset: Int, filter: AssignmentFeedFilter, search: String, day: AssignmentDay?
+        ) = AssignmentPage(emptyList(), null)
         override suspend fun reviewAccount(userId: String, approved: Boolean) = Unit
         override suspend fun load(userId: String, administrator: Boolean): HomeContent {
             calls++
-            return HomeContent(listOf(Assignment("a", "Evento", "campo", "alta", "pendiente", null, null, null)), emptyList())
+            return HomeContent()
         }
         override fun observe(userId: String, administrator: Boolean) = emptyFlow<HomeContent>()
     }

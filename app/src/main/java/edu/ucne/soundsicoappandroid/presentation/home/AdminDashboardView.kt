@@ -3,11 +3,13 @@ package edu.ucne.soundsicoappandroid.presentation.home
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -19,7 +21,10 @@ import java.util.Locale
 
 @Composable
 fun AdminDashboardView(state: HomeState, onIntent: (HomeIntent) -> Unit, onCreateAssignment: () -> Unit) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(state.assignmentList.offset, state.filter) { listState.scrollToItem(0) }
     LazyColumn(Modifier.widthIn(max = 680.dp).fillMaxSize(), contentPadding = PaddingValues(16.dp),
+        state = listState,
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { HomeHeader(state, onIntent) }
         state.content.dashboard?.let { dashboard ->
@@ -35,13 +40,6 @@ fun AdminDashboardView(state: HomeState, onIntent: (HomeIntent) -> Unit, onCreat
         }
         item { AssignmentSectionHeader(state, onIntent) }
         assignmentItems(state, onIntent)
-        if (state.content.nextOffset != null) item {
-            OutlinedButton({ onIntent(HomeIntent.LoadMore) }, enabled = !state.loadingMore && !state.listLoading,
-                modifier = Modifier.fillMaxWidth()) {
-                if (state.loadingMore) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                else Text("Cargar más asignaciones")
-            }
-        }
     }
 }
 

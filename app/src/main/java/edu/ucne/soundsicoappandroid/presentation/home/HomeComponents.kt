@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import edu.ucne.soundsicoappandroid.domain.model.Assignment
+import edu.ucne.soundsicoappandroid.domain.model.ASSIGNMENT_PAGE_SIZE
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -76,25 +77,50 @@ internal fun AssignmentSectionHeader(state: HomeState, onIntent: (HomeIntent) ->
 }
 
 internal fun LazyListScope.assignmentItems(state: HomeState, onIntent: (HomeIntent) -> Unit) {
-    if (state.listLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-    state.listFailure?.let { message ->
+    assignmentPageItems(
+        state.assignmentList,
+        "No hay asignaciones que coincidan con los filtros.",
+        onRetry = { onIntent(HomeIntent.RetryAssignments) },
+        onPage = { onIntent(HomeIntent.ChangePage(HomeTab.Start, it)) }
+    ) { assignment ->
+        AssignmentCard(assignment) { onIntent(HomeIntent.OpenAssignment(assignment)) }
+    }
+}
+
+internal fun LazyListScope.assignmentPageItems(
+    page: AssignmentListState,
+    emptyMessage: String,
+    onRetry: () -> Unit,
+    onPage: (Int) -> Unit,
+    row: @Composable (Assignment) -> Unit
+) {
+    if (page.loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+    page.failure?.let { message ->
         item {
             Text(message, color = MaterialTheme.colorScheme.error)
-            TextButton({ onIntent(HomeIntent.RetryAssignments) }) { Text("Reintentar asignaciones") }
+            TextButton(onRetry) { Text("Reintentar") }
         }
     }
-    if (state.visibleAssignments.isEmpty() && !state.loading && !state.listLoading && state.failure == null && state.listFailure == null) item {
+    if (page.loaded && page.items.isEmpty() && !page.loading && page.failure == null) item {
         Column(Modifier.fillMaxWidth().padding(vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(Icons.Outlined.EventAvailable, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Sin asignaciones", fontWeight = FontWeight.SemiBold)
-            Text(if (state.audience == HomeAudience.Employee && state.todayOnly)
-                "No tienes asignaciones para hoy." else "No hay asignaciones que coincidan con los filtros.",
+            Text(emptyMessage,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
         }
     }
-    items(state.visibleAssignments, key = { it.id }) { assignment ->
-        AssignmentCard(assignment) { onIntent(HomeIntent.OpenAssignment(assignment)) }
+    items(page.items, key = { it.id }) { assignment -> row(assignment) }
+    if (page.showPagination) item {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            TextButton({ page.previousOffset?.let(onPage) }, enabled = !page.loading && page.previousOffset != null) {
+                Text("Anterior")
+            }
+            Text("Página ${page.offset / ASSIGNMENT_PAGE_SIZE + 1}", style = MaterialTheme.typography.labelMedium)
+            TextButton({ page.nextOffset?.let(onPage) }, enabled = !page.loading && page.nextOffset != null) {
+                Text("Siguiente")
+            }
+        }
     }
 }
 

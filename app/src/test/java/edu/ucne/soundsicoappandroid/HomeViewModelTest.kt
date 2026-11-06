@@ -13,6 +13,7 @@ import org.junit.*
 import org.junit.Assert.*
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.Duration
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
@@ -38,6 +39,7 @@ class HomeViewModelTest {
         assertEquals(listOf(true), repository.loads)
         assertEquals(HomeAudience.Administrator, model.state.value.audience)
         assertEquals(AssignmentFilter.Pending, model.state.value.filter)
+        assertEquals(listOf(Request(true, 0, AssignmentFeedFilter.Pending, "", null)), repository.requests)
         assertEquals(17, model.state.value.content.dashboard?.metrics?.total)
         assertEquals(1, model.state.value.content.dashboard?.pendingAccounts?.size)
     }
@@ -46,13 +48,13 @@ class HomeViewModelTest {
         val model = model()
         advanceUntilIdle()
         model.onIntent(HomeIntent.Filter(AssignmentFilter.Pending))
-        model.onIntent(HomeIntent.LoadMore)
+        model.onIntent(HomeIntent.ChangePage(HomeTab.Start, 10))
         model.onIntent(HomeIntent.OpenApprovals)
         model.onIntent(HomeIntent.RequestReview(repository.account, true))
         model.onIntent(HomeIntent.ConfirmReview)
         advanceUntilIdle()
         assertEquals(listOf(false), repository.loads)
-        assertTrue(repository.requests.isEmpty())
+        assertEquals(listOf(Request(false, 0, AssignmentFeedFilter.Pending, "", null)), repository.requests)
         assertEquals(0, repository.reviews)
         assertFalse(model.state.value.approvalsOpen)
     }
@@ -77,24 +79,51 @@ class HomeViewModelTest {
         auth.role = "admin"
         val model = model()
         advanceUntilIdle()
+        repository.requests.clear()
         model.onIntent(HomeIntent.Search("son"))
         advanceTimeBy(150)
         model.onIntent(HomeIntent.Search("sonido"))
         advanceUntilIdle()
-        assertEquals(listOf("0:pendientes:sonido"), repository.requests)
-        assertFalse(model.state.value.listLoading)
+        assertEquals(listOf(Request(true, 0, AssignmentFeedFilter.Pending, "sonido", null)), repository.requests)
+        assertFalse(model.state.value.assignmentList.loading)
     }
 
-    @Test fun paginationDeduplicatesAndStopsAtLastPage() = runTest(dispatcher) {
-        auth.role = "admin"
-        val model = model()
-        advanceUntilIdle()
-        model.onIntent(HomeIntent.LoadMore)
-        model.onIntent(HomeIntent.LoadMore)
-        advanceUntilIdle()
-        assertEquals(listOf("50:pendientes:"), repository.requests)
-        assertEquals(1, model.state.value.content.assignments.size)
-        assertNull(model.state.value.content.nextOffset)
+    @Test fun allHomeFiltersPaginateZeroTenAndElevenResultsForBothRoles() = runTest(dispatcher) {
+        for (administrator in listOf(false, true)) {
+            auth.role = if (administrator) "admin" else "empleado"
+            for (filter in AssignmentFilter.entries) {
+                for (count in listOf(0, 10, 11)) {
+                    repository.items = (1..count).map { index ->
+                        repository.assignment.copy(id = "%02d".format(index), status = when (filter) {
+                            AssignmentFilter.Pending -> if (index % 2 == 0) "en_curso" else "pendiente"
+                            AssignmentFilter.Overdue -> "vencida"
+                            AssignmentFilter.Complete -> "completada"
+                        }, createdAt = "2026-10-01T12:00:00Z")
+                    }
+                    val model = model()
+                    advanceUntilIdle()
+                    model.onIntent(HomeIntent.Filter(filter))
+                    advanceUntilIdle()
+                    val first = model.state.value.assignmentList
+                    assertEquals(repository.items.reversed().take(10), first.items)
+                    assertEquals(count > 10, first.showPagination)
+                    if (count == 11) {
+                        repository.requests.clear()
+                        model.onIntent(HomeIntent.ChangePage(HomeTab.Start, 10))
+                        model.onIntent(HomeIntent.ChangePage(HomeTab.Start, 10))
+                        advanceUntilIdle()
+                        val last = model.state.value.assignmentList
+                        assertEquals(listOf(Request(administrator, 10, filter.value, "", null)), repository.requests)
+                        assertEquals(listOf(repository.items.first()), last.items)
+                        assertNull(last.nextOffset)
+                        assertTrue(last.showPagination)
+                        model.onIntent(HomeIntent.ChangePage(HomeTab.Start, 0))
+                        advanceUntilIdle()
+                        assertEquals(first.items, model.state.value.assignmentList.items)
+                    }
+                }
+            }
+        }
     }
 
     @Test fun approvalFailurePreservesPendingAccountAndRetrySucceeds() = runTest(dispatcher) {
@@ -116,28 +145,67 @@ class HomeViewModelTest {
         assertEquals(0, model.state.value.content.dashboard?.pendingAccounts?.size)
     }
 
-    @Test fun employeeHomeStartsWithPendingAssignmentsAndCanFilterToday() = runTest(dispatcher) {
-        val today = LocalDate.now()
-        val date = today.atTime(10, 0).atZone(ZoneId.systemDefault()).toOffsetDateTime().toString()
-        val tomorrow = today.plusDays(1).atTime(10, 0).atZone(ZoneId.systemDefault()).toOffsetDateTime().toString()
-        repository.items = listOf(repository.assignment.copy(id = "today", scheduledDates = listOf(date)),
-            repository.assignment.copy(id = "tomorrow", deadline = tomorrow, status = "en_curso"),
-            repository.assignment.copy(id = "completed", status = "completada"),
-            repository.assignment.copy(id = "overdue", status = "vencida"))
+    @Test fun changingFiltersAndSearchRestartsPaginationAndIgnoresOldResponses() = runTest(dispatcher) {
+        repository.items = (1..11).map { repository.assignment.copy(id = "%02d".format(it), title = "Equipo $it") } +
+            repository.assignment.copy(id = "complete", status = "completada")
         val model = model()
         advanceUntilIdle()
-        assertEquals(AssignmentFilter.Pending, model.state.value.filter)
-        assertEquals(listOf("today", "tomorrow"), model.state.value.visibleAssignments.map { it.id })
-        model.onIntent(HomeIntent.ShowToday)
-        assertEquals(listOf("today"), model.state.value.visibleAssignments.map { it.id })
+        assertFalse(model.state.value.assignmentList.items.any { it.id == "01" })
+        model.onIntent(HomeIntent.ChangePage(HomeTab.Start, 10))
+        runCurrent()
+        model.onIntent(HomeIntent.Filter(AssignmentFilter.Complete))
+        advanceUntilIdle()
+        assertEquals(listOf("complete"), model.state.value.assignmentList.items.map { it.id })
+        assertEquals(0, model.state.value.assignmentList.offset)
+        model.onIntent(HomeIntent.Filter(AssignmentFilter.Pending))
+        advanceUntilIdle()
+        model.onIntent(HomeIntent.ChangePage(HomeTab.Start, 10))
+        advanceUntilIdle()
+        model.onIntent(HomeIntent.Search("Equipo 11"))
+        advanceUntilIdle()
+        assertEquals(0, model.state.value.assignmentList.offset)
+        assertEquals(listOf("11"), model.state.value.assignmentList.items.map { it.id })
+    }
+
+    @Test fun calendarRequestsOnlyItsSelectedDayAndRetriesTheFailedPage() = runTest(dispatcher) {
+        repository.items = (1..11).map { repository.assignment.copy(id = "%02d".format(it)) }
+        val model = model()
+        advanceUntilIdle()
+        model.onIntent(HomeIntent.Filter(AssignmentFilter.Complete))
+        model.onIntent(HomeIntent.Search("texto"))
+        model.onIntent(HomeIntent.SelectTab(HomeTab.Calendar))
+        advanceUntilIdle()
+        val date = LocalDate.of(2026, 11, 3)
+        model.onIntent(HomeIntent.SelectDate(date))
+        model.onIntent(HomeIntent.SelectDate(date))
+        advanceUntilIdle()
+        val expected = Request(false, 0, AssignmentFeedFilter.All, "", AssignmentDay.from(date))
+        assertEquals(1, repository.requests.count { it == expected })
+        assertEquals(10, model.state.value.calendarList.items.size)
+        repository.failPage = true
+        model.onIntent(HomeIntent.ChangePage(HomeTab.Calendar, 10))
+        advanceUntilIdle()
+        assertNotNull(model.state.value.calendarList.failure)
+        assertEquals(0, model.state.value.calendarList.previousOffset)
+        repository.failPage = false
+        model.onIntent(HomeIntent.RetryCalendar)
+        advanceUntilIdle()
+        assertEquals(expected.copy(offset = 10), repository.requests.last())
+        assertEquals(1, model.state.value.calendarList.items.size)
+        assertTrue(model.state.value.calendarList.showPagination)
+    }
+
+    @Test fun calendarDayUsesLocalMidnightAcrossDaylightSavingChanges() {
+        val day = AssignmentDay.from(LocalDate.of(2026, 3, 8), ZoneId.of("America/New_York"))
+        assertEquals("2026-03-08T05:00:00Z", day.start.toString())
+        assertEquals(23, Duration.between(day.start, day.end).toHours().toInt())
     }
 
     @Test fun homeAppliesRealtimeDashboardChangesWithoutRefresh() = runTest(dispatcher) {
         auth.role = "admin"
         val model = model()
         advanceUntilIdle()
-        val updated = HomeContent(repository.items, emptyList(),
-            AdminDashboard(DashboardMetrics(23, 8, 4, 91.0, listOf(2, 3, 4)), emptyList()))
+        val updated = HomeContent(dashboard = AdminDashboard(DashboardMetrics(23, 8, 4, 91.0, listOf(2, 3, 4)), emptyList()))
 
         repository.live.emit(updated)
         advanceUntilIdle()
@@ -220,25 +288,41 @@ class HomeViewModelTest {
         }
     }
 
+    private data class Request(
+        val administrator: Boolean, val offset: Int, val filter: AssignmentFeedFilter, val search: String, val day: AssignmentDay?
+    )
+
     private class TestHome : HomeRepository {
         val loads = mutableListOf<Boolean>()
-        val requests = mutableListOf<String>()
+        val requests = mutableListOf<Request>()
         val account = PendingAccount("pending", "Ana", "ana@empresa.com", "Técnico")
         val assignment = Assignment("assignment", "Montaje de sonido", "campo", "alta", "pendiente", "Hotel", null, null)
         var items = listOf(assignment)
         var failReview = false
+        var failPage = false
         var reviews = 0
         val live = MutableSharedFlow<HomeContent>(extraBufferCapacity = 1)
-        override suspend fun loadEmployeeAssignments(userId: String) = items
         override suspend fun loadDashboard() = AdminDashboard(DashboardMetrics(17, 5, 2, 98.4, listOf(1, 2, 1, 3, 2, 1, 1)), listOf(account))
         override suspend fun load(userId: String, administrator: Boolean): HomeContent {
             loads += administrator
-            return HomeContent(items, emptyList(), if (administrator) loadDashboard() else null, if (administrator) 50 else null)
+            return HomeContent(dashboard = if (administrator) loadDashboard() else null)
         }
-        override suspend fun loadAdminAssignments(offset: Int, filter: String, search: String): AssignmentPage {
-            requests += "$offset:$filter:$search"
-            delay(20)
-            return AssignmentPage(items, null)
+        override suspend fun loadAssignmentPage(
+            userId: String, administrator: Boolean, offset: Int, filter: AssignmentFeedFilter, search: String, day: AssignmentDay?
+        ): AssignmentPage {
+            requests += Request(administrator, offset, filter, search, day)
+            val matching = items.filter { item ->
+                item.title.contains(search, ignoreCase = true) && when (filter) {
+                    AssignmentFeedFilter.Pending -> item.status in listOf("pendiente", "en_curso")
+                    AssignmentFeedFilter.Overdue -> item.status == "vencida"
+                    AssignmentFeedFilter.Completed -> item.status == "completada"
+                    AssignmentFeedFilter.All -> true
+                }
+            }.sortedWith(compareByDescending<Assignment> { it.createdAt }.thenByDescending { it.id })
+            withContext(NonCancellable) { delay(if (offset == 0) 20 else 100) }
+            if (failPage) error("No se pudo cargar la página")
+            val next = offset + ASSIGNMENT_PAGE_SIZE
+            return AssignmentPage(matching.drop(offset).take(ASSIGNMENT_PAGE_SIZE), next.takeIf { it < matching.size })
         }
         override suspend fun reviewAccount(userId: String, approved: Boolean) {
             reviews++

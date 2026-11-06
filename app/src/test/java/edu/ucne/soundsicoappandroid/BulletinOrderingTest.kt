@@ -26,7 +26,6 @@ class BulletinOrderingTest {
                         {"id":"z-old","asunto":"Anterior","mensaje":"Aviso anterior","fecha_publicacion":"2026-10-12T15:59:00Z"}
                     ]"""
                 }
-                "/rest/v1/asignacion_equipo" -> "[]"
                 else -> error("Unexpected request")
             }
             Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200).message("OK")

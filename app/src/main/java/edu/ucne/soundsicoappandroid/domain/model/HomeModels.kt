@@ -1,5 +1,25 @@
 package edu.ucne.soundsicoappandroid.domain.model
 
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+
+const val ASSIGNMENT_PAGE_SIZE = 10
+
+enum class AssignmentFeedFilter(val adminValue: String, val feedValue: String) {
+    Pending("pendientes", "pending"),
+    Overdue("vencidas", "overdue"),
+    Completed("completadas", "completed"),
+    All("todas", "all")
+}
+
+data class AssignmentDay(val start: Instant, val end: Instant) {
+    companion object {
+        fun from(date: LocalDate, zone: ZoneId = ZoneId.systemDefault()) =
+            AssignmentDay(date.atStartOfDay(zone).toInstant(), date.plusDays(1).atStartOfDay(zone).toInstant())
+    }
+}
+
 data class Assignment(
     val id: String,
     val title: String,
@@ -30,8 +50,6 @@ data class Bulletin(
 data class BulletinDraft(val subject: String, val message: String)
 
 data class HomeContent(
-    val assignments: List<Assignment>,
-    val bulletins: List<Bulletin>,
-    val dashboard: AdminDashboard? = null,
-    val nextOffset: Int? = null
+    val bulletins: List<Bulletin> = emptyList(),
+    val dashboard: AdminDashboard? = null
 )

@@ -5,9 +5,15 @@ import kotlinx.coroutines.flow.Flow
 
 interface HomeRepository {
     suspend fun load(userId: String, administrator: Boolean): HomeContent
-    suspend fun loadEmployeeAssignments(userId: String): List<Assignment>
     suspend fun loadDashboard(): AdminDashboard
-    suspend fun loadAdminAssignments(offset: Int, filter: String, search: String): AssignmentPage
+    suspend fun loadAssignmentPage(
+        userId: String,
+        administrator: Boolean,
+        offset: Int,
+        filter: AssignmentFeedFilter,
+        search: String,
+        day: AssignmentDay?
+    ): AssignmentPage
     suspend fun reviewAccount(userId: String, approved: Boolean)
     fun observe(userId: String, administrator: Boolean): Flow<HomeContent>
 }

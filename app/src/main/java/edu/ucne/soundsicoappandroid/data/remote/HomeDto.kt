@@ -34,11 +34,13 @@ data class AssignmentDto(
             milestone.collaborators.any { it.userId == userId && it.confirmedAt != null }
         } }
         val normalizedStatus = status.orEmpty().lowercase()
-        val completedByStatus = normalizedStatus in COMPLETED_STATUSES
-        val overdue = !completedByStatus && displayDeadline.toInstantOrNull()?.let { !it.isAfter(now) } == true
+        val completedByStatus = complete ?: (normalizedStatus in COMPLETED_STATUSES)
+        val overdue = !completedByStatus && displayDeadline.toInstantOrNull()?.let {
+            if (personal == null) !it.isAfter(now) else it.isBefore(now)
+        } == true
         val displayStatus = when {
-            complete == true || completedByStatus -> "completada"
-            overdue || normalizedStatus == "vencida" -> "vencida"
+            completedByStatus -> "completada"
+            overdue || (personal == null && normalizedStatus == "vencida") -> "vencida"
             personal == null -> normalizedStatus
             personal.any { milestone -> milestone.collaborators.any { it.userId == userId && it.confirmedAt != null } } -> "en_curso"
             else -> "pendiente"

@@ -21,7 +21,13 @@ data class AssignmentPageDto(
     @SerialName("has_more") val hasMore: Boolean,
     @SerialName("next_offset") val nextOffset: Int? = null
 ) {
-    fun toDomain() = AssignmentPage(items.map { it.toDomain("", true) }, nextOffset.takeIf { hasMore })
+    fun toDomain(userId: String, administrator: Boolean, offset: Int): AssignmentPage {
+        check(items.size <= ASSIGNMENT_PAGE_SIZE &&
+            (!hasMore || (items.size == ASSIGNMENT_PAGE_SIZE && nextOffset == offset + ASSIGNMENT_PAGE_SIZE))) {
+            "El servidor devolvió una página inválida."
+        }
+        return AssignmentPage(items.map { it.toDomain(userId, administrator) }, nextOffset.takeIf { hasMore })
+    }
 }
 
 @Serializable
