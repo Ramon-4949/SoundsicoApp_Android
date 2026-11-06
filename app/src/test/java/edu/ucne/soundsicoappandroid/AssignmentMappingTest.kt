@@ -2,6 +2,8 @@ package edu.ucne.soundsicoappandroid
 
 import edu.ucne.soundsicoappandroid.data.remote.AssignmentDto
 import edu.ucne.soundsicoappandroid.data.remote.MilestoneDto
+import edu.ucne.soundsicoappandroid.data.remote.CollaboratorDto
+import edu.ucne.soundsicoappandroid.data.remote.SupervisorDto
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.Instant
@@ -60,5 +62,25 @@ class AssignmentMappingTest {
         ).toDomain("employee", false, now)
 
         assertEquals("vencida", assignment.status)
+    }
+
+    @Test
+    fun personalCompletionAndSupervisorStatusRemainSeparate() {
+        val dto = AssignmentDto(
+            id = "assignment", title = "Evento", status = "vencida",
+            deadline = "2026-10-02T14:00:00Z",
+            milestones = listOf(
+                MilestoneDto(id = "first", order = 1, date = "2026-10-02T14:00:00Z", collaborators = listOf(
+                    CollaboratorDto(userId = "finished", confirmedAt = "2026-10-02T14:00:00Z")
+                )),
+                MilestoneDto(id = "second", order = 2, date = "2026-10-03T14:00:00Z", collaborators = listOf(
+                    CollaboratorDto(userId = "pending"), CollaboratorDto(userId = "supervisor")
+                ))
+            ),
+            supervisors = listOf(SupervisorDto("supervisor"))
+        )
+        assertEquals("completada", dto.toDomain("finished", false, now).status)
+        assertEquals("pendiente", dto.toDomain("pending", false, now).status)
+        assertEquals("vencida", dto.toDomain("supervisor", false, now).status)
     }
 }

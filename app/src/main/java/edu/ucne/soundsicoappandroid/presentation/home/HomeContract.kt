@@ -2,17 +2,27 @@ package edu.ucne.soundsicoappandroid.presentation.home
 
 import edu.ucne.soundsicoappandroid.domain.model.*
 import java.time.LocalDate
-import java.time.OffsetDateTime
-import java.time.ZoneId
 
 enum class HomeTab(val title: String) { Start("Inicio"), Messages("Mensajes"), Calendar("Calendario"), Profile("Perfil") }
-enum class AssignmentFilter(val title: String, val serverValue: String) {
-    Pending("Pendientes", "pendientes"),
-    Overdue("Vencidas", "vencidas"), Complete("Completadas", "completadas")
+enum class AssignmentFilter(val title: String, val value: AssignmentFeedFilter) {
+    Pending("Pendientes", AssignmentFeedFilter.Pending),
+    Overdue("Vencidas", AssignmentFeedFilter.Overdue), Complete("Completadas", AssignmentFeedFilter.Completed)
 }
 enum class HomeAudience { Resolving, Restricted, Administrator, Employee }
 enum class ProfilePage { Overview, Performance, Accounts }
 data class AccountReview(val account: PendingAccount, val approved: Boolean)
+
+data class AssignmentListState(
+    val items: List<Assignment> = emptyList(),
+    val offset: Int = 0,
+    val nextOffset: Int? = null,
+    val loaded: Boolean = false,
+    val loading: Boolean = false,
+    val failure: String? = null
+) {
+    val previousOffset: Int? get() = (offset - ASSIGNMENT_PAGE_SIZE).takeIf { offset > 0 }
+    val showPagination: Boolean get() = previousOffset != null || nextOffset != null
+}
 
 data class HomeState(
     val user: AuthUser,
@@ -25,25 +35,19 @@ data class HomeState(
     val loading: Boolean = true,
     val signingOut: Boolean = false,
     val failure: String? = null,
-    val content: HomeContent = HomeContent(emptyList(), emptyList()),
+    val content: HomeContent = HomeContent(),
     val search: String = "",
     val searching: Boolean = false,
     val filter: AssignmentFilter = AssignmentFilter.Pending,
     val selectedDate: LocalDate = LocalDate.now(),
-    val today: LocalDate = LocalDate.now(),
-    val todayOnly: Boolean = false,
     val assignment: Assignment? = null,
     val bulletin: Bulletin? = null,
-    val loadingMore: Boolean = false,
-    val listLoading: Boolean = false,
-    val listFailure: String? = null,
+    val assignmentList: AssignmentListState = AssignmentListState(),
     val approvalsOpen: Boolean = false,
     val review: AccountReview? = null,
     val savingAccount: Boolean = false,
     val actionFailure: String? = null,
-    val calendarAssignments: List<Assignment>? = null,
-    val calendarLoading: Boolean = false,
-    val calendarFailure: String? = null,
+    val calendarList: AssignmentListState = AssignmentListState(),
     val profilePage: ProfilePage = ProfilePage.Overview,
     val accounts: List<ManagedAccount> = emptyList(),
     val accountsLoading: Boolean = false,
@@ -64,22 +68,9 @@ data class HomeState(
         else -> HomeAudience.Employee
     }
 
-    val visibleAssignments: List<Assignment> get() {
-        if (audience == HomeAudience.Administrator) return content.assignments
-        return content.assignments.filter { assignment ->
-            (!todayOnly || assignment.occursOn(today)) &&
-                (assignment.title + " " + assignment.location.orEmpty()).contains(search.trim(), true) &&
-                when (filter) {
-                    AssignmentFilter.Pending -> assignment.status in listOf("pendiente", "en_curso")
-                    AssignmentFilter.Complete -> assignment.status == "completada"
-                    AssignmentFilter.Overdue -> assignment.status == "vencida"
-                }
-        }
-    }
-}
-
-fun Assignment.occursOn(date: LocalDate): Boolean = (scheduledDates + listOfNotNull(deadline)).any {
-    runCatching { OffsetDateTime.parse(it).atZoneSameInstant(ZoneId.systemDefault()).toLocalDate() == date }.getOrDefault(false)
+    internal fun listFor(tab: HomeTab) = if (tab == HomeTab.Calendar) calendarList else assignmentList
+    internal fun withList(tab: HomeTab, page: AssignmentListState) =
+        if (tab == HomeTab.Calendar) copy(calendarList = page) else copy(assignmentList = page)
 }
 
 sealed interface HomeIntent {
@@ -88,9 +79,9 @@ sealed interface HomeIntent {
     data object Refresh : HomeIntent
     data object SignOut : HomeIntent
     data object ToggleSearch : HomeIntent
-    data object ShowToday : HomeIntent
-    data object LoadMore : HomeIntent
     data object RetryAssignments : HomeIntent
+    data object RetryCalendar : HomeIntent
+    data class ChangePage(val tab: HomeTab, val offset: Int) : HomeIntent
     data object OpenApprovals : HomeIntent
     data object CloseApprovals : HomeIntent
     data class RequestReview(val account: PendingAccount, val approved: Boolean) : HomeIntent

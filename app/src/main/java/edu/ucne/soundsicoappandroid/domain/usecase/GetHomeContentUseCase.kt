@@ -1,7 +1,8 @@
 package edu.ucne.soundsicoappandroid.domain.usecase
 
 import edu.ucne.soundsicoappandroid.domain.model.AccountAccess
-import edu.ucne.soundsicoappandroid.domain.model.Assignment
+import edu.ucne.soundsicoappandroid.domain.model.AssignmentDay
+import edu.ucne.soundsicoappandroid.domain.model.AssignmentFeedFilter
 import edu.ucne.soundsicoappandroid.domain.model.EmployeeProfile
 import edu.ucne.soundsicoappandroid.domain.repository.HomeRepository
 
@@ -10,28 +11,17 @@ class GetHomeContentUseCase(private val repository: HomeRepository) {
 
     fun observe(profile: EmployeeProfile) = repository.observe(profile.approvedId(), profile.isAdministrator)
 
-    suspend fun adminAssignments(profile: EmployeeProfile, offset: Int, filter: String, search: String) =
-        profile.requireAdministrator().let {
-        repository.loadAdminAssignments(offset, filter, search.trim().take(100))
-        }
+    suspend fun assignmentPage(
+        profile: EmployeeProfile,
+        offset: Int,
+        filter: AssignmentFeedFilter,
+        search: String = "",
+        day: AssignmentDay? = null
+    ) = repository.loadAssignmentPage(profile.approvedId(), profile.isAdministrator, offset, filter, search.trim().take(100), day)
 
     suspend fun reviewAccount(profile: EmployeeProfile, userId: String, approved: Boolean) {
         profile.requireAdministrator()
         repository.reviewAccount(userId, approved)
-    }
-
-    suspend fun adminCalendar(profile: EmployeeProfile): List<Assignment> {
-        profile.requireAdministrator()
-        val result = mutableListOf<Assignment>()
-        var offset = 0
-        do {
-            val page = repository.loadAdminAssignments(offset, "todas", "")
-            result.addAll(page.items)
-            val next = page.nextOffset
-            check(next == null || next > offset) { "El servidor devolvió una página inválida." }
-            offset = next ?: break
-        } while (true)
-        return result.distinctBy { it.id }
     }
 
     private fun EmployeeProfile.approvedId(): String {

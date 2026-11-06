@@ -30,7 +30,8 @@ class HomeScreensTest {
         EmployeeProfile("u", "Ana", if (admin) "Yankee" else "JoseCarlos01", "", "Técnico",
             if (admin) "admin" else "empleado", AccountAccess.Approved),
         loading = false,
-        content = HomeContent(if (admin) assignments.take(1) else assignments, emptyList(), if (admin) AdminDashboard(
+        assignmentList = AssignmentListState(assignments.take(1), loaded = true),
+        content = HomeContent(dashboard = if (admin) AdminDashboard(
             DashboardMetrics(17, 5, 2, 98.4, listOf(1, 2, 0, 4, 3, 2, 5)),
             listOf(PendingAccount("p", "Ana Pérez", "ana@empresa.com", "Técnico"))
         ) else null)
@@ -73,6 +74,19 @@ class HomeScreensTest {
         compose.onNodeWithText("Aprobar").performClick()
         assertTrue(intents.any { it is HomeIntent.RequestReview })
         assertFalse(intents.contains(HomeIntent.ConfirmReview))
+    }
+
+    @Test fun calendarLastPageKeepsBackControlAndShowsSimpleAgenda() {
+        val intents = mutableListOf<HomeIntent>()
+        val calendar = state(false).copy(tab = HomeTab.Calendar,
+            calendarList = AssignmentListState(listOf(assignments.last()), offset = 10, loaded = true))
+        compose.setContent { SoundiscoTheme { HomeScreen(calendar, intents::add) } }
+        compose.onNodeWithText("Página 2").assertIsDisplayed()
+        compose.onNodeWithText("Siguiente").assertIsNotEnabled()
+        compose.onNodeWithText("Completada").assertDoesNotExist()
+        compose.onNodeWithText("Pendientes").assertDoesNotExist()
+        compose.onNodeWithText("Anterior").performClick()
+        assertTrue(intents.contains(HomeIntent.ChangePage(HomeTab.Calendar, 0)))
     }
 
     private fun capture(name: String) {

@@ -5,6 +5,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -192,20 +193,30 @@ private fun CalendarContent(state: HomeState, onIntent: (HomeIntent) -> Unit) {
             onIntent(HomeIntent.SelectDate(java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneOffset.UTC).toLocalDate()))
         }
     }
-    val assignments = if (state.audience == HomeAudience.Administrator) state.calendarAssignments.orEmpty() else state.content.assignments
-    val entries = assignments.filter { it.occursOn(state.selectedDate) }
-    LazyColumn(Modifier.widthIn(max = 680.dp).fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(state.calendarList.offset) {
+        if (state.calendarList.offset > 0 || listState.firstVisibleItemIndex > 1) listState.scrollToItem(1)
+    }
+    LazyColumn(Modifier.widthIn(max = 680.dp).fillMaxSize(), state = listState,
+        contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             DatePicker(datePicker, title = null, headline = null, showModeToggle = false)
         }
         item { Text("Agenda del día", style = MaterialTheme.typography.titleLarge) }
-        if (state.calendarLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-        state.calendarFailure?.let { message -> item {
-            Text(message, color = MaterialTheme.colorScheme.error)
-            TextButton({ onIntent(HomeIntent.SelectTab(HomeTab.Calendar)) }) { Text("Reintentar agenda") }
-        } }
-        if (entries.isEmpty() && !state.loading && !state.calendarLoading && state.failure == null && state.calendarFailure == null) item { EmptyContent("Sin asignaciones", "No hay asignaciones con fecha para este día.") }
-        items(entries, key = { it.id }) { AssignmentCard(it) { onIntent(HomeIntent.OpenAssignment(it)) } }
+        assignmentPageItems(
+            state.calendarList,
+            "No hay asignaciones con fecha para este día.",
+            onRetry = { onIntent(HomeIntent.RetryCalendar) },
+            onPage = { onIntent(HomeIntent.ChangePage(HomeTab.Calendar, it)) }
+        ) { assignment ->
+            val location = assignment.location?.takeIf { it.isNotBlank() }
+            ListItem(
+                headlineContent = { Text(assignment.title) },
+                supportingContent = location?.let { value -> { Text(value) } },
+                trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+                modifier = Modifier.clickable { onIntent(HomeIntent.OpenAssignment(assignment)) }
+            )
+        }
     }
 }
 

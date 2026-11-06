@@ -4,10 +4,7 @@ import edu.ucne.soundsicoappandroid.data.remote.*
 import edu.ucne.soundsicoappandroid.domain.model.*
 import edu.ucne.soundsicoappandroid.domain.repository.HomeRepository
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.query.Columns
-import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
@@ -16,6 +13,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
@@ -25,30 +23,8 @@ import kotlinx.serialization.json.put
 class SupabaseHomeRepository(private val client: SupabaseClient) : HomeRepository {
     override suspend fun load(userId: String, administrator: Boolean): HomeContent = coroutineScope {
         val bulletins = async { loadBulletins() }
-        if (administrator) {
-            val dashboard = async { loadDashboard() }
-            val page = loadAdminAssignments(0, AdminAssignmentFilter.Pending.value, "")
-            HomeContent(page.items, bulletins.await(), dashboard.await(), page.nextOffset)
-        } else {
-            HomeContent(loadEmployeeAssignments(userId), bulletins.await())
-        }
-    }
-
-    override suspend fun loadEmployeeAssignments(userId: String): List<Assignment> {
-        val result = mutableListOf<AssignmentDto>()
-        var offset = 0L
-        val columns = "asignaciones(*,hitos_itinerario(*,hitos_colaboradores(*,perfiles(id,nombre_completo,rol,cargo))),asignacion_supervisores(usuario_id),asignacion_equipo(perfiles(id,nombre_completo,rol,cargo)))"
-        do {
-            val page = client.from("asignacion_equipo").select(Columns.raw(columns)) {
-                filter { eq("perfil_id", userId) }
-                order("asignacion_id", Order.ASCENDING)
-                range(offset, offset + 199)
-            }.decodeList<AssignmentLinkDto>()
-            result.addAll(page.mapNotNull { it.asignaciones })
-            offset += 200
-        } while (page.size == 200)
-        return result.distinctBy { it.id }.map { it.toDomain(userId, false) }
-            .sortedWith(compareBy<Assignment> { it.status == "completada" }.thenBy { it.deadline })
+        val dashboard = if (administrator) loadDashboard() else null
+        HomeContent(bulletins.await(), dashboard)
     }
 
     override suspend fun loadDashboard(): AdminDashboard = coroutineScope {
@@ -67,13 +43,29 @@ class SupabaseHomeRepository(private val client: SupabaseClient) : HomeRepositor
         AdminDashboard(metrics.await(), accounts.await())
     }
 
-    override suspend fun loadAdminAssignments(offset: Int, filter: String, search: String): AssignmentPage =
-        client.postgrest.rpc("admin_assignments_page", buildJsonObject {
+    override suspend fun loadAssignmentPage(
+        userId: String, administrator: Boolean, offset: Int, filter: AssignmentFeedFilter,
+        search: String, day: AssignmentDay?
+    ): AssignmentPage {
+        val adminHome = administrator && day == null
+        val params = buildJsonObject {
             put("p_offset", offset)
-            put("p_limit", 50)
-            put("p_estado", filter)
-            put("p_busqueda", search)
-        }).decodeAs<AssignmentPageDto>().toDomain()
+            put("p_limit", ASSIGNMENT_PAGE_SIZE)
+            if (adminHome) {
+                put("p_estado", filter.adminValue)
+                put("p_busqueda", search)
+            } else {
+                put("p_status", filter.feedValue)
+                put("p_search", search)
+                if (day != null) {
+                    put("p_day_start", day.start.toString())
+                    put("p_day_end", day.end.toString())
+                }
+            }
+        }
+        val function = if (adminHome) "admin_assignments_page" else "assignments_feed_page"
+        return client.postgrest.rpc(function, params).decodeAs<AssignmentPageDto>().toDomain(userId, administrator, offset)
+    }
 
     override suspend fun reviewAccount(userId: String, approved: Boolean) {
         client.postgrest.rpc("admin_review_account", buildJsonObject {
@@ -92,7 +84,6 @@ class SupabaseHomeRepository(private val client: SupabaseClient) : HomeRepositor
         val team = channel.postgresChangeFlow<PostgresAction>("public") { table = "asignacion_equipo" }
         val notifications = channel.postgresChangeFlow<PostgresAction>("public") { table = "notificaciones_app" }
         try {
-            emit(load(userId, administrator))
             channel.subscribe(true)
             val polling = flow {
                 while (true) {
@@ -102,7 +93,7 @@ class SupabaseHomeRepository(private val client: SupabaseClient) : HomeRepositor
             }
             val changes = if (administrator) merge(assignments, milestones, collaborators, bulletins, profiles, notifications)
             else merge(assignments, milestones, collaborators, bulletins, team)
-            changes.map { Unit }.mergeWith(polling).collect { emit(load(userId, administrator)) }
+            merge(changes.map { Unit }, polling).conflate().collect { emit(load(userId, administrator)) }
         } finally {
             client.realtime.removeChannel(channel)
         }
@@ -110,5 +101,4 @@ class SupabaseHomeRepository(private val client: SupabaseClient) : HomeRepositor
 
     private suspend fun loadBulletins(): List<Bulletin> = SupabaseBulletinsRepository(client).getBulletins()
 
-    private fun Flow<Unit>.mergeWith(other: Flow<Unit>): Flow<Unit> = merge(this, other)
 }
